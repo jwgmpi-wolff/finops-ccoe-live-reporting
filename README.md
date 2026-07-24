@@ -7,6 +7,8 @@ Live, multi-tenant Azure FinOps reporting with Entra/CLI auth, subscription disc
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjerrywolff_microsoft%2Ffinops-ccoe-live-reporting%2Fmain%2Finfra%2Fazuredeploy.json)
 [![Deploy Local](https://img.shields.io/badge/Deploy-Local-2ea44f?logo=powershell&logoColor=white)](deploy-local.ps1)
 
+Note: this repository is private due Enterprise Managed User policy. The Deploy-to-Azure button works for users/accounts with repository access.
+
 ## Screenshots
 
 ![Dashboard overview](docs/screenshots/dashboard-overview.svg)
