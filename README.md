@@ -11,6 +11,11 @@ Note: this repository is private due Enterprise Managed User policy. The Deploy-
 
 ## UI Sample Screenshots
 
+### 0. Live UI Capture (Authentication and Context)
+Real browser capture from the running application showing authentication status, context load, and tenant/subscription discovery controls.
+
+![Live UI authentication sample](docs/screenshots/ui-auth-live.png)
+
 ### 1. Dashboard Overview
 Shows the top-level UI layout including authentication controls, tenant/subscription scope selection, filters, and report actions.
 
