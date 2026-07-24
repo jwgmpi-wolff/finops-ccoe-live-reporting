@@ -9,10 +9,21 @@ Live, multi-tenant Azure FinOps reporting with Entra/CLI auth, subscription disc
 
 Note: this repository is private due Enterprise Managed User policy. The Deploy-to-Azure button works for users/accounts with repository access.
 
-## Screenshots
+## UI Sample Screenshots
+
+### 1. Dashboard Overview
+Shows the top-level UI layout including authentication controls, tenant/subscription scope selection, filters, and report actions.
 
 ![Dashboard overview](docs/screenshots/dashboard-overview.svg)
+
+### 2. AI Token Tracking Results
+Shows a representative live run for the AI token tracking domain with summary counters and result table preview.
+
 ![AI token results](docs/screenshots/ai-token-results.svg)
+
+### 3. Export and Deployment Panel
+Shows the export capabilities and deployment workflow highlights used by this project.
+
 ![Exports and deployment](docs/screenshots/exports-and-deploy.svg)
 
 ## Key Features
