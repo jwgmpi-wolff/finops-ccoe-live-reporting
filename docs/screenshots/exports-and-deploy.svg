@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820">
+  <rect width="1400" height="820" fill="#122433" />
+  <rect x="50" y="40" width="1300" height="740" rx="16" fill="#f8fafc" />
+  <text x="90" y="110" font-size="34" font-family="Segoe UI, Arial, sans-serif" fill="#173f57">Export and Deployment Experience</text>
+
+  <rect x="90" y="150" width="560" height="260" rx="12" fill="#ffffff" stroke="#ccdce8" />
+  <text x="120" y="195" font-size="24" font-family="Segoe UI, Arial, sans-serif" fill="#1f4d68">Exports</text>
+  <text x="120" y="235" font-size="18" font-family="Segoe UI, Arial, sans-serif" fill="#4f6b7d">CSV, PDF, PPTX, SQLite</text>
+  <text x="120" y="265" font-size="18" font-family="Segoe UI, Arial, sans-serif" fill="#4f6b7d">Report cache retained for multi-format export</text>
+
+  <rect x="90" y="440" width="560" height="260" rx="12" fill="#ffffff" stroke="#ccdce8" />
+  <text x="120" y="485" font-size="24" font-family="Segoe UI, Arial, sans-serif" fill="#1f4d68">Local Deployment</text>
+  <text x="120" y="525" font-size="18" font-family="Segoe UI, Arial, sans-serif" fill="#4f6b7d">deploy-local.ps1 bootstraps venv and starts Uvicorn</text>
+
+  <rect x="740" y="150" width="560" height="550" rx="12" fill="#ffffff" stroke="#ccdce8" />
+  <text x="770" y="195" font-size="24" font-family="Segoe UI, Arial, sans-serif" fill="#1f4d68">Azure Deployment</text>
+  <text x="770" y="235" font-size="18" font-family="Segoe UI, Arial, sans-serif" fill="#4f6b7d">deploy-azure.ps1 provisions App Service + zip deploy</text>
+  <text x="770" y="265" font-size="18" font-family="Segoe UI, Arial, sans-serif" fill="#4f6b7d">Deploy-to-Azure ARM template included</text>
+</svg>

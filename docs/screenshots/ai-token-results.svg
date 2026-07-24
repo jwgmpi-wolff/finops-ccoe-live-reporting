@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820">
+  <rect width="1400" height="820" fill="#10212f" />
+  <rect x="40" y="30" width="1320" height="760" rx="14" fill="#fdfefe" />
+  <rect x="60" y="50" width="1280" height="64" rx="8" fill="#0a6f8f" />
+  <text x="88" y="91" font-size="28" font-family="Segoe UI, Arial, sans-serif" fill="#ffffff">AI Token Tracking - Live Run Sample</text>
+
+  <rect x="70" y="135" width="1260" height="120" rx="8" fill="#e9f4fa" stroke="#bdd7e6" />
+  <text x="95" y="175" font-size="22" font-family="Segoe UI, Arial, sans-serif" fill="#114966">Summary</text>
+  <text x="95" y="210" font-size="18" font-family="Segoe UI, Arial, sans-serif" fill="#3c5f73">rows=4, ai_token_tracking=67, ai_token_summary=4, warnings=1</text>
+
+  <rect x="70" y="275" width="1260" height="485" rx="8" fill="#ffffff" stroke="#d3e1ea" />
+  <text x="95" y="315" font-size="22" font-family="Segoe UI, Arial, sans-serif" fill="#114966">Tracking Table</text>
+  <rect x="95" y="335" width="1210" height="42" fill="#0a6f8f" />
+  <text x="110" y="362" font-size="16" font-family="Consolas, monospace" fill="#ffffff">subscriptionName | serviceName | meterName | quantity | cost</text>
+  <rect x="95" y="377" width="1210" height="320" fill="#f8fbfd" stroke="#e4edf3" />
+  <text x="110" y="410" font-size="15" font-family="Consolas, monospace" fill="#34586a">Trey Research R&D Playground | Azure OpenAI | Input Tokens  | ...</text>
+  <text x="110" y="440" font-size="15" font-family="Consolas, monospace" fill="#34586a">Trey Research IT            | Azure OpenAI | Output Tokens | ...</text>
+  <text x="110" y="470" font-size="15" font-family="Consolas, monospace" fill="#34586a">Trey Research Finance       | Azure OpenAI | Total Tokens  | ...</text>
+  <text x="110" y="500" font-size="15" font-family="Consolas, monospace" fill="#7e98a8">...</text>
+</svg>

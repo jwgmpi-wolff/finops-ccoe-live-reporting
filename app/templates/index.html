@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinOps CCoE Live Reporting</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>FinOps CCoE Live Reporting</h1>
+    <p>Analyze Azure cost, usage, governance, and optimization signals across selected tenants and subscriptions using live Microsoft APIs.</p>
+    <p>Live tenant data only. No cached analysis mode.</p>
+  </header>
+
+  <section class="card">
+    <h2>Authentication</h2>
+    <p>Sign in with Entra to initiate Microsoft login and retrieve a live ARM token for tenant and subscription discovery.</p>
+    <div id="executionIndicator" class="execution-indicator idle" aria-live="polite">
+      <span id="executionSpinner" class="spinner" aria-hidden="true"></span>
+      <span id="executionText">Idle</span>
+    </div>
+    <button id="loginBtn">Sign In with Entra</button>
+    <button id="cliAuthBtn">Use Azure CLI Session</button>
+    <button id="clearAuthBtn">Clear Auth Context</button>
+    <span id="loginState">Not signed in</span>
+    <p id="contextState">Context not loaded</p>
+    <button id="loadTenantsBtn">Load Tenants</button>
+  </section>
+
+  <section class="card grid">
+    <div>
+      <h2>Tenant</h2>
+      <select id="tenantSelect"></select>
+      <button id="loadSubsBtn">Discover Subscriptions</button>
+    </div>
+    <div>
+      <h2>Subscriptions</h2>
+      <label><input type="checkbox" id="selectAllSubs" /> Select all</label>
+      <div id="subscriptionList" class="scroll"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Report Scope</h2>
+    <div class="filters">
+      <label>Domain<select id="domainSelect"></select></label>
+      <label>Start Date<input type="date" id="startDate" /></label>
+      <label>End Date<input type="date" id="endDate" /></label>
+      <label>Resource Group<select id="resourceGroup"><option value="">All</option></select></label>
+      <label>Region<select id="region"><option value="">All</option></select></label>
+      <label>Tag Key<select id="tagKey"><option value="">All</option></select></label>
+      <label>Tag Value<select id="tagValue"><option value="">All</option></select></label>
+      <label>Severity<select id="severity"><option value="">All</option></select></label>
+      <label><input type="checkbox" id="actionableOnly" /> Actionable only</label>
+      <label><input type="checkbox" id="strictLive" checked /> Strict live validation</label>
+    </div>
+    <button id="runReportBtn">Run Live Report</button>
+  </section>
+
+  <section class="card">
+    <h2>Export</h2>
+    <div class="row">
+      <button data-export="csv" class="exportBtn">Export CSV</button>
+      <button data-export="pdf" class="exportBtn">Export PDF</button>
+      <button data-export="pptx" class="exportBtn">Export PPTX</button>
+      <button data-export="sqlite" class="exportBtn">Export SQLite</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Results</h2>
+    <div id="results" class="results-grid"></div>
+  </section>
+
+  <script>
+    window.finopsConfig = {
+      clientId: "{{ entra_client_id }}",
+      authority: "{{ entra_authority }}",
+      redirectUri: "{{ entra_redirect_uri }}"
+    };
+  </script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
