@@ -1,0 +1,91 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/copilot/plugin/v2.4/schema.json",
+  "schema_version": "v2.4",
+  "name_for_human": "FinOps Live",
+  "namespace": "FinOpsCcoe",
+  "description_for_human": "Read live Azure FinOps evidence within the user's RBAC scope.",
+  "description_for_model": "Use this plugin to discover the signed-in user's Azure tenant and subscriptions and to run bounded, read-only FinOps reports backed by live Azure APIs. Never infer tenant values without calling a function.",
+  "functions": [
+    {
+      "name": "listTenants",
+      "description": "Lists Azure tenants accessible to the signed-in user.",
+      "capabilities": {
+        "confirmation": {
+          "type": "None",
+          "isNonConsequential": true
+        },
+        "security_info": {
+          "data_handling": ["GetPrivateData"]
+        }
+      }
+    },
+    {
+      "name": "listSubscriptions",
+      "description": "Lists Azure subscriptions accessible to the signed-in user.",
+      "capabilities": {
+        "confirmation": {
+          "type": "None",
+          "isNonConsequential": true
+        },
+        "security_info": {
+          "data_handling": ["GetPrivateData"]
+        }
+      }
+    },
+    {
+      "name": "runFinOpsReport",
+      "description": "Runs a bounded read-only live Azure FinOps report for an explicit tenant, subscription scope, domain, and optional date range.",
+      "states": {
+        "responding": {
+          "instructions": [
+            "Use only values returned by the function.",
+            "State source timestamps, data quality, warnings, and whether rows were truncated.",
+            "Do not present estimated savings as guaranteed savings."
+          ]
+        }
+      },
+      "capabilities": {
+        "confirmation": {
+          "type": "None",
+          "isNonConsequential": true
+        },
+        "security_info": {
+          "data_handling": ["GetPrivateData", "DataTransform"]
+        }
+      }
+    }
+  ],
+  "runtimes": [
+    {
+      "type": "OpenApi",
+      "auth": {
+        "type": "OAuthPluginVault",
+        "reference_id": "{{OAUTH_REFERENCE_ID}}"
+      },
+      "run_for_functions": [
+        "listTenants",
+        "listSubscriptions",
+        "runFinOpsReport"
+      ],
+      "spec": {
+        "url": "finops-openapi.yaml",
+        "progress_style": "ShowUsageWithInput"
+      }
+    }
+  ],
+  "capabilities": {
+    "conversation_starters": [
+      {
+        "title": "Accessible subscriptions",
+        "text": "Which Azure subscriptions can I analyze?"
+      },
+      {
+        "title": "Optimization evidence",
+        "text": "Run a live optimization report for my selected subscription."
+      }
+    ]
+  },
+  "contact_email": "{{CONTACT_EMAIL}}",
+  "privacy_policy_url": "{{API_BASE_URL}}/privacy",
+  "legal_info_url": "{{API_BASE_URL}}/terms"
+}

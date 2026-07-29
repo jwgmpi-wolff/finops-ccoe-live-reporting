@@ -1,0 +1,36 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.29",
+  "version": "1.0.0",
+  "id": "{{APP_ID}}",
+  "developer": {
+    "name": "Wolff Office",
+    "websiteUrl": "{{API_BASE_URL}}",
+    "privacyUrl": "{{API_BASE_URL}}/privacy",
+    "termsOfUseUrl": "{{API_BASE_URL}}/terms"
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "name": {
+    "short": "FinOps CCoE",
+    "full": "FinOps CCoE Live Reporting Agent"
+  },
+  "description": {
+    "short": "Live Azure FinOps analysis grounded in the signed-in user's access.",
+    "full": "A read-only Microsoft 365 Copilot agent for live Azure cost, optimization, governance, sustainability, and AI usage reporting. Results preserve source timestamps, data-quality signals, and the signed-in user's Azure RBAC boundaries."
+  },
+  "accentColor": "#0078D4",
+  "copilotAgents": {
+    "declarativeAgents": [
+      {
+        "id": "finopsCcoeAgent",
+        "file": "declarativeAgent.json"
+      }
+    ]
+  },
+  "validDomains": [
+    "{{API_HOST}}"
+  ]
+}

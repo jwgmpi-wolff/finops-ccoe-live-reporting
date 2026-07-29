@@ -3,6 +3,7 @@ param(
   [Parameter(Mandatory = $true)] [string]$Location,
   [Parameter(Mandatory = $true)] [string]$AppName,
   [string]$PlanName = "finops-asp-linux",
+  [string]$Sku = "B1",
   [string]$Runtime = "PYTHON:3.11",
   [switch]$SkipZipDeploy
 )
@@ -10,31 +11,31 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Invoke-Az {
-  param([string[]]$Args)
-  az @Args
+  param([string[]]$CommandArgs)
+  & az @CommandArgs
   if ($LASTEXITCODE -ne 0) {
-    throw "Azure CLI command failed: az $($Args -join ' ')"
+    throw "Azure CLI command failed: az $($CommandArgs -join ' ')"
   }
 }
 
 Write-Host "[1/6] Ensuring Azure CLI login..."
-Invoke-Az -Args @("account", "show", "-o", "none")
+Invoke-Az -CommandArgs @("account", "show", "-o", "none")
 
 Write-Host "[2/6] Creating resource group if needed..."
-Invoke-Az -Args @("group", "create", "--name", $ResourceGroup, "--location", $Location, "-o", "none")
+Invoke-Az -CommandArgs @("group", "create", "--name", $ResourceGroup, "--location", $Location, "-o", "none")
 
-Write-Host "[3/6] Creating Linux App Service plan if needed..."
-Invoke-Az -Args @(
+Write-Host "[3/6] Creating Linux App Service plan if needed (SKU: $Sku)..."
+Invoke-Az -CommandArgs @(
   "appservice", "plan", "create",
   "--name", $PlanName,
   "--resource-group", $ResourceGroup,
   "--is-linux",
-  "--sku", "B1",
+  "--sku", $Sku,
   "-o", "none"
 )
 
 Write-Host "[4/6] Creating/updating Web App..."
-Invoke-Az -Args @(
+Invoke-Az -CommandArgs @(
   "webapp", "create",
   "--name", $AppName,
   "--resource-group", $ResourceGroup,
@@ -44,7 +45,7 @@ Invoke-Az -Args @(
 )
 
 Write-Host "[5/6] Applying runtime settings..."
-Invoke-Az -Args @(
+Invoke-Az -CommandArgs @(
   "webapp", "config", "appsettings", "set",
   "--name", $AppName,
   "--resource-group", $ResourceGroup,
@@ -54,7 +55,7 @@ Invoke-Az -Args @(
   "-o", "none"
 )
 
-Invoke-Az -Args @(
+Invoke-Az -CommandArgs @(
   "webapp", "config", "set",
   "--name", $AppName,
   "--resource-group", $ResourceGroup,
@@ -76,7 +77,7 @@ if (-not $SkipZipDeploy) {
     "README.md"
   ) -DestinationPath $zipPath -Force
 
-  Invoke-Az -Args @(
+  Invoke-Az -CommandArgs @(
     "webapp", "deployment", "source", "config-zip",
     "--resource-group", $ResourceGroup,
     "--name", $AppName,

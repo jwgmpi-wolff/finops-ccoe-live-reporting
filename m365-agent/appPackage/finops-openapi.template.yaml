@@ -1,0 +1,243 @@
+openapi: 3.0.1
+info:
+  title: FinOps CCoE Live Reporting API
+  version: 1.0.0
+  description: Read-only live Azure FinOps actions for Microsoft 365 Copilot.
+  license:
+    name: Proprietary
+servers:
+  - url: {{API_BASE_URL}}
+security:
+  - azureManagementOAuth: []
+paths:
+  /api/tenants:
+    get:
+      operationId: listTenants
+      summary: List accessible Azure tenants
+      description: Returns tenants accessible with the signed-in user's delegated Azure token.
+      responses:
+        '200':
+          description: Accessible tenants and source audit evidence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionResponse'
+        '401':
+          description: A delegated Azure bearer token is required.
+        '502':
+          description: The live Azure tenant discovery request failed.
+  /api/subscriptions:
+    get:
+      operationId: listSubscriptions
+      summary: List accessible Azure subscriptions
+      description: Returns subscriptions accessible with the signed-in user's delegated Azure token.
+      responses:
+        '200':
+          description: Accessible subscriptions and source audit evidence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionResponse'
+        '401':
+          description: A delegated Azure bearer token is required.
+        '502':
+          description: The live Azure subscription discovery request failed.
+  /api/agent/reports/{domain}:
+    post:
+      operationId: runFinOpsReport
+      summary: Run a bounded live Azure FinOps report
+      description: Runs a read-only report using live Azure APIs and the signed-in user's RBAC.
+      parameters:
+        - name: domain
+          in: path
+          required: true
+          description: FinOps analysis domain.
+          schema:
+            type: string
+            enum:
+              - spend_visibility
+              - budget_forecasting
+              - optimization
+              - reservations
+              - savings_plans
+              - savings_potential
+              - reservations_potential
+              - anomaly_detection
+              - governance
+              - tag_compliance
+              - chargeback_showback
+              - architecture_efficiency
+              - sustainability
+              - ai_finops
+              - ai_token_tracking
+              - idle_waste_detection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentReportRequest'
+      responses:
+        '200':
+          description: Bounded report evidence, recommendations, source audit, and quality signals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentReportResponse'
+        '401':
+          description: A delegated Azure bearer token is required.
+        '422':
+          description: The report scope or request is invalid.
+        '502':
+          description: A live Azure source query failed.
+components:
+  securitySchemes:
+    azureManagementOAuth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://login.microsoftonline.com/{{TENANT_ID_OR_DOMAIN}}/oauth2/v2.0/authorize
+          tokenUrl: https://login.microsoftonline.com/{{TENANT_ID_OR_DOMAIN}}/oauth2/v2.0/token
+          scopes:
+            https://management.azure.com/user_impersonation: Read Azure resources as the signed-in user
+  schemas:
+    CollectionResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        audit:
+          type: object
+          additionalProperties: true
+    FilterSet:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        management_group:
+          type: string
+        resource_group:
+          type: string
+        resource_type:
+          type: string
+        region:
+          type: string
+        tag_key:
+          type: string
+        tag_value:
+          type: string
+        environment:
+          type: string
+        cost_center:
+          type: string
+        severity:
+          type: string
+        actionable_only:
+          type: boolean
+          default: false
+    AgentReportRequest:
+      type: object
+      required:
+        - tenant_id
+        - subscription_ids
+      properties:
+        tenant_id:
+          type: string
+          description: Tenant identifier returned by listTenants.
+        subscription_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Explicit subscription identifiers returned by listSubscriptions.
+        filters:
+          $ref: '#/components/schemas/FilterSet'
+        strict_live_mode:
+          type: boolean
+          default: true
+        max_rows:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+    SourceAudit:
+      type: object
+      properties:
+        source:
+          type: string
+        endpoint:
+          type: string
+        duration_ms:
+          type: integer
+        row_count:
+          type: integer
+        executed_at_utc:
+          type: string
+          format: date-time
+    Recommendation:
+      type: object
+      properties:
+        category:
+          type: string
+        impact_estimate:
+          type: string
+        confidence:
+          type: string
+        affected_scope:
+          type: string
+        suggested_action:
+          type: string
+        evidence:
+          type: string
+    AgentReportResponse:
+      type: object
+      properties:
+        domain:
+          type: string
+        tenant_id:
+          type: string
+        subscription_scope:
+          type: array
+          items:
+            type: string
+        generated_at_utc:
+          type: string
+          format: date-time
+        execution_time_ms:
+          type: integer
+        live_data_confirmed:
+          type: boolean
+        data_quality_score:
+          type: number
+        unresolved_fields_count:
+          type: integer
+        total_row_count:
+          type: integer
+        returned_row_count:
+          type: integer
+        result_truncated:
+          type: boolean
+        source_audit:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceAudit'
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recommendation'
+        warnings:
+          type: array
+          items:
+            type: string

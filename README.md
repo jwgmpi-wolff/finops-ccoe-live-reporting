@@ -1,35 +1,75 @@
-# FinOps CCoE Live Reporting
+# FinOps CCoE Live Reporting and Microsoft 365 Copilot Agent
 
-Live, multi-tenant Azure FinOps reporting with Entra/CLI auth, subscription discovery, domain-specific analytics, and multi-format exports.
+A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot declarative agent. The project discovers the signed-in user's tenants and subscriptions, queries Microsoft APIs within that user's Azure RBAC boundary, produces evidence-backed recommendations, and exports reports to CSV, PDF, PowerPoint, and SQLite.
+
+## Contents
+
+- [Deploy](#deploy-buttons)
+- [Screenshots](#screenshots)
+- [Architecture](#architecture)
+- [Features](#key-features)
+- [Run locally](#run-locally)
+- [Deploy to Azure](#deploy-to-azure-app-service)
+- [Build the Copilot agent](#build-the-microsoft-365-copilot-agent)
+- [Test](#testing)
+- [Regenerate with GitHub Copilot](#full-regenerate-prompt-github-copilot)
 
 ## Deploy Buttons
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjerrywolff_microsoft%2Ffinops-ccoe-live-reporting%2Fmain%2Finfra%2Fazuredeploy.json)
-[![Deploy Local](https://img.shields.io/badge/Deploy-Local-2ea44f?logo=powershell&logoColor=white)](deploy-local.ps1)
+[![Run locally](https://img.shields.io/badge/Run-Locally-2ea44f?logo=powershell&logoColor=white)](#run-locally)
 
-Note: this repository is private due Enterprise Managed User policy. The Deploy-to-Azure button works for users/accounts with repository access.
+The Azure button opens the ARM template in the Azure portal and provisions the Linux App Service plan and web app. Azure Resource Manager must be able to read the template URL. For a private Enterprise Managed User repository, use [the authenticated PowerShell deployment](#deploy-to-azure-app-service), which provisions the same resources and uploads the application code.
 
-## UI Sample Screenshots
+## Screenshots
 
-### 0. Live UI Capture (Authentication and Context)
-Real browser capture from the running application showing authentication status, context load, and tenant/subscription discovery controls.
+### Live dashboard
+
+Real browser capture showing authentication, tenant and subscription discovery, report filters, export actions, and results.
 
 ![Live UI authentication sample](docs/screenshots/ui-auth-live.png)
 
-### 1. Dashboard Overview
-Shows the top-level UI layout including authentication controls, tenant/subscription scope selection, filters, and report actions.
+### Dashboard capabilities
+
+Product diagram of authentication, scope selection, reporting, results, and exports.
 
 ![Dashboard overview](docs/screenshots/dashboard-overview.svg)
 
-### 2. AI Token Tracking Results
-Shows a representative live run for the AI token tracking domain with summary counters and result table preview.
+### AI token tracking
+
+Representative result layout for Azure AI usage evidence.
 
 ![AI token results](docs/screenshots/ai-token-results.svg)
 
-### 3. Export and Deployment Panel
-Shows the export capabilities and deployment workflow highlights used by this project.
+### Export and deployment
+
+Product diagram of the supported report formats and deployment paths.
 
 ![Exports and deployment](docs/screenshots/exports-and-deploy.svg)
+
+## Architecture
+
+```mermaid
+flowchart LR
+   User[Signed-in user] --> UI[FastAPI dashboard]
+   User --> Copilot[Microsoft 365 Copilot]
+   Copilot --> Plugin[Declarative agent API plugin]
+   Plugin --> API[Bounded FinOps API]
+   UI --> API
+   API --> ARM[Azure Resource Manager]
+   API --> Cost[Cost Management]
+   API --> Graph[Azure Resource Graph]
+   API --> Advisor[Azure Advisor and Policy]
+   API --> Monitor[Azure Monitor and usage APIs]
+   ARM --> Report[Normalized report and source audit]
+   Cost --> Report
+   Graph --> Report
+   Advisor --> Report
+   Monitor --> Report
+   Report --> Export[CSV, PDF, PPTX, SQLite]
+```
+
+Microsoft 365 Copilot hosts the language model. The API plugin forwards a delegated Azure token to the FastAPI backend. The backend does not use application-wide Azure permissions and cannot access resources beyond the signed-in user's RBAC scope.
 
 ## Key Features
 
@@ -40,6 +80,17 @@ Shows the export capabilities and deployment workflow highlights used by this pr
 5. Export support for CSV, PDF, PPTX, and SQLite.
 6. Strict live validation mode for trust gating.
 7. Clear authentication context switching and CLI reauth support.
+8. Publishable Microsoft 365 Copilot declarative agent package with delegated Azure RBAC.
+
+## Microsoft 365 Copilot Agent
+
+The `m365-agent` folder converts the live reporting API into a read-only declarative agent for Microsoft 365 Copilot. It includes the v1.8 agent manifest, v2.4 API plugin, constrained OpenAPI contract, OAuth packaging inputs, and a PowerShell package builder.
+
+See [m365-agent/README.md](m365-agent/README.md) for tenant prerequisites, authentication setup, package creation, validation, and publishing steps.
+
+The agent API is deployed to Azure Container Apps at:
+
+`https://finops-ccoe-agent.whiteforest-caf556e3.westus.azurecontainerapps.io`
 
 ## Tech Stack
 
@@ -60,12 +111,34 @@ Shows the export capabilities and deployment workflow highlights used by this pr
 7. `app/static/app.js`: frontend behavior and report execution flow.
 8. `deploy-local.ps1`: one-command local run.
 9. `deploy-azure.ps1`: App Service provisioning + source deployment.
-10. `infra/azuredeploy.json`: ARM template for Deploy-to-Azure button.
+10. `Dockerfile`: Python 3.11 image for Azure Container Apps.
+11. `infra/azuredeploy.json`: ARM template for Deploy-to-Azure button.
 
-## Quick Start (Local)
+## Prerequisites
+
+- Python 3.11 or newer
+- PowerShell 7 or Windows PowerShell 5.1
+- Azure CLI for local CLI authentication and Azure deployment
+- An Azure account with access to at least one subscription
+- Microsoft 365 Agents Toolkit when validating or publishing the Copilot agent
+- Microsoft 365 Copilot and custom app upload enabled in the publishing tenant
+
+## Run Locally
+
+From PowerShell in the repository root:
 
 ```powershell
-./deploy-local.ps1
+git clone https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting.git
+Set-Location finops-ccoe-live-reporting
+.\deploy-local.ps1
+```
+
+The script creates `.venv`, upgrades pip, installs `requirements.txt`, reports whether browser Entra authentication is configured, and starts Uvicorn at `http://127.0.0.1:8010`.
+
+To select another interface or port:
+
+```powershell
+.\deploy-local.ps1 -HostName 0.0.0.0 -Port 8080
 ```
 
 Manual run:
@@ -79,10 +152,25 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 
 Open: `http://127.0.0.1:8010`
 
-## Deploy to Azure (App Service)
+## Deploy to Azure App Service
+
+Authenticate to the intended tenant and subscription first:
+
+```powershell
+az login
+az account set --subscription '<subscription-id-or-name>'
+```
+
+Then provision and upload the application:
 
 ```powershell
 ./deploy-azure.ps1 -ResourceGroup rg-finops-live -Location eastus -AppName finops-live-reporting-demo
+```
+
+Use `-Sku` to select another App Service plan SKU when needed:
+
+```powershell
+./deploy-azure.ps1 -ResourceGroup rg-finops-live -Location eastus -AppName finops-live-reporting-demo -Sku F1
 ```
 
 What the script does:
@@ -94,10 +182,55 @@ What the script does:
 5. Configures startup command and app settings.
 6. Performs zip deployment of the project.
 
+The app name must be globally unique. The signed-in account must be able to create a resource group, App Service plan, and web app. If App Service reports a zero VM quota, use the Container Apps Consumption path below or request App Service quota.
+
+## Deploy to Azure Container Apps
+
+Container Apps Consumption is the fallback when the subscription has no App Service VM quota. The deployed tenant uses the existing `wolffacr` registry and the `finops-ccoe-env` Consumption environment in West US.
+
+```powershell
+az acr build --registry wolffacr --image finops-ccoe-agent:20260729 .
+
+az containerapp create `
+   --name finops-ccoe-agent `
+   --resource-group rg-finops-ccoe-agent `
+   --environment finops-ccoe-env `
+   --image wolffacr.azurecr.io/finops-ccoe-agent:20260729 `
+   --target-port 8000 `
+   --ingress external `
+   --min-replicas 0 `
+   --max-replicas 2 `
+   --cpu 0.5 `
+   --memory 1Gi
+```
+
+Prefer managed identity with the `AcrPull` role for private registry access. If the deploying account cannot create role assignments, a registry credential can be stored as a Container Apps secret instead; never print or commit that credential.
+
+## Build the Microsoft 365 Copilot Agent
+
+After deploying the HTTPS API, create the OAuth authentication configuration described in [m365-agent/README.md](m365-agent/README.md), then build the package:
+
+```powershell
+.\m365-agent\build-package.ps1 `
+   -ApiBaseUrl 'https://<your-api-host>' `
+   -OAuthReferenceId '<oauth-vault-reference-id>' `
+   -TenantIdOrDomain '<tenant-id>' `
+   -ContactEmail '<support-email>'
+```
+
+The generated `m365-agent/dist/finops-ccoe-agent.zip` contains the Teams app manifest, declarative agent manifest, API plugin, OpenAPI document, and icons. The `dist` folder is ignored by Git because it contains tenant-specific package values.
+
+Validate and sideload the package with Microsoft 365 Agents Toolkit before submitting it to the organizational app catalog.
+
 ## Environment Configuration
 
-1. `FINOPS_ENTRA_CLIENT_ID` (optional): enables browser OAuth path.
-2. If not set, Azure CLI session login is still supported in the UI.
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `FINOPS_ENTRA_CLIENT_ID` | No | Enables the browser Microsoft Entra sign-in path. |
+| `FINOPS_ENTRA_AUTHORITY` | No | Overrides the Entra authority URL. |
+| `FINOPS_ENTRA_REDIRECT_URI` | No | Overrides the browser redirect URI. |
+
+When `FINOPS_ENTRA_CLIENT_ID` is not set, local Azure CLI session authentication remains available. The hosted Copilot API routes receive delegated bearer tokens from the API plugin and do not rely on Azure CLI.
 
 ## Testing
 
@@ -224,15 +357,55 @@ Deployment and operations requirements:
 1. Include deploy-local.ps1 to bootstrap and run locally.
 2. Include deploy-azure.ps1 to provision and deploy to Azure App Service.
 3. Include infra/azuredeploy.json and a Deploy-to-Azure button in README.
-4. Include screenshots under docs/screenshots and reference them in README.
-5. Include tests and clear onboarding instructions.
+4. Include Dockerfile and .dockerignore for Azure Container Apps Consumption deployment.
+5. Include screenshots under docs/screenshots and reference only project-related images in README.
+6. Include tests and clear onboarding instructions.
+
+Microsoft 365 Copilot agent requirements:
+1. Add m365-agent/appPackage/declarativeAgent.json using the current Microsoft declarative agent schema.
+2. Add m365-agent/appPackage/manifest.template.json using the current Microsoft 365 app manifest schema.
+3. Add m365-agent/appPackage/finops-api-plugin.template.json using an OpenAPI runtime and OAuthPluginVault delegated authentication.
+4. Add m365-agent/appPackage/finops-openapi.template.yaml with listTenants, listSubscriptions, and runFinOpsReport operations.
+5. Add m365-agent/build-package.ps1 that expands API URL, host, tenant, app ID, contact email, and OAuth reference placeholders; generates valid color and outline PNG icons; validates generated JSON; and creates a six-file ZIP package.
+6. Make the package builder compatible with Windows PowerShell 5.1 and PowerShell 7, including UTF-8 without BOM output.
+7. Add bounded request and response models for Copilot. Limit report rows to a configurable maximum of 100 and return total count, returned count, and truncation state.
+8. Add privacy and terms routes and reference them from the app and plugin manifests.
+9. Keep all actions read-only, mark them non-consequential, and instruct the model to preserve timestamps, warnings, data quality, and source evidence.
+10. Never commit OAuth references, client secrets, generated package files, access tokens, or tenant environment files.
+
+Required project structure:
+- app/main.py, app/config.py, app/models.py
+- app/services/azure_live.py, reporting.py, enrichment.py, exporters.py
+- app/templates/index.html and app/static/app.js, styles.css
+- tests/test_api.py
+- deploy-local.ps1 and deploy-azure.ps1
+- Dockerfile and .dockerignore
+- infra/azuredeploy.json
+- m365-agent/README.md, build-package.ps1, and appPackage templates
+- docs/screenshots with only dashboard, result, export, and deployment visuals
+- requirements.txt, .gitignore, and README.md
+
+Documentation requirements:
+1. Write a complete README with prerequisites, architecture, local deployment, Azure deployment, Container Apps fallback, agent packaging, testing, troubleshooting, screenshots, and this full regeneration prompt.
+2. Add a Deploy to Azure badge linked to infra/azuredeploy.json.
+3. Add a Run Locally badge linked to the local instructions.
+4. State clearly that ARM must be able to access the template URL and provide deploy-azure.ps1 as the authenticated private-repository path.
+5. Do not claim that conceptual SVG diagrams are live screenshots; label each visual accurately.
 
 Strict validation gate:
 - Fail report execution if live source connectivity is unavailable and strict-live mode is enabled.
 - Display explicit error instead of stale fallback.
 - Reject output if more than 5 percent of key business fields are unresolved after enrichment.
 
-Now implement this end-to-end in code, scaffolding all needed files, wiring dependencies, adding tests, and providing complete run + deploy instructions.
+Implementation quality gate:
+1. Use typed Pydantic request and response models.
+2. Keep API calls asynchronous with explicit timeouts and actionable errors.
+3. Escape user-controlled values in the browser UI and render structured tables without unsafe HTML.
+4. Keep generated files, virtual environments, caches, exports, credentials, and secrets out of Git.
+5. Test unauthenticated rejection, bounded agent responses, report domains, live-source adapters with monkeypatching, export behavior, and auth-context cleanup.
+6. Run the complete test suite, parse all JSON manifests, validate the OpenAPI document, build and inspect the agent ZIP, and verify all relative README links.
+
+Now implement the entire project end-to-end. Create every listed file with complete working content, wire all routes and deployment paths, run validation, fix failures, and finish with exact local, Azure, Container Apps, and Microsoft 365 publication commands. Do not stop at a scaffold or use mock runtime report data.
 ```
 
 ## License
