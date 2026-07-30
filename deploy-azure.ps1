@@ -5,6 +5,8 @@ param(
   [string]$PlanName = "finops-asp-linux",
   [string]$Sku = "B1",
   [string]$Runtime = "PYTHON:3.11",
+  [string]$EntraClientId,
+  [string]$EntraAuthority = "https://login.microsoftonline.com/organizations",
   [switch]$SkipZipDeploy
 )
 
@@ -45,13 +47,22 @@ Invoke-Az -CommandArgs @(
 )
 
 Write-Host "[5/6] Applying runtime settings..."
+$appSettings = @(
+  "SCM_DO_BUILD_DURING_DEPLOYMENT=true",
+  "WEBSITES_PORT=8000",
+  "FINOPS_ENTRA_AUTHORITY=$EntraAuthority",
+  "FINOPS_ENTRA_REDIRECT_URI=https://$AppName.azurewebsites.net"
+)
+if ($EntraClientId) {
+  $appSettings += "FINOPS_ENTRA_CLIENT_ID=$EntraClientId"
+}
+
 Invoke-Az -CommandArgs @(
   "webapp", "config", "appsettings", "set",
   "--name", $AppName,
   "--resource-group", $ResourceGroup,
   "--settings",
-  "SCM_DO_BUILD_DURING_DEPLOYMENT=true",
-  "WEBSITES_PORT=8000",
+  $appSettings,
   "-o", "none"
 )
 

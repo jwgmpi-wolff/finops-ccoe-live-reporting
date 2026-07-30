@@ -164,7 +164,12 @@ az account set --subscription '<subscription-id-or-name>'
 Then provision and upload the application:
 
 ```powershell
-./deploy-azure.ps1 -ResourceGroup rg-finops-live -Location eastus -AppName finops-live-reporting-demo
+./deploy-azure.ps1 `
+   -ResourceGroup rg-finops-live `
+   -Location eastus `
+   -AppName finops-live-reporting-demo `
+   -EntraClientId <tenant-owned-entra-client-id> `
+   -EntraAuthority https://login.microsoftonline.com/<tenant-id>
 ```
 
 Use `-Sku` to select another App Service plan SKU when needed:
@@ -228,9 +233,17 @@ Validate and sideload the package with Microsoft 365 Agents Toolkit before submi
 | --- | --- | --- |
 | `FINOPS_ENTRA_CLIENT_ID` | No | Enables the browser Microsoft Entra sign-in path. |
 | `FINOPS_ENTRA_AUTHORITY` | No | Overrides the Entra authority URL. |
-| `FINOPS_ENTRA_REDIRECT_URI` | No | Overrides the browser redirect URI. |
+| `FINOPS_ENTRA_REDIRECT_URI` | No | Overrides the browser redirect URI; `deploy-azure.ps1` sets it to the App Service URL. |
 
 When `FINOPS_ENTRA_CLIENT_ID` is not set, local Azure CLI session authentication remains available. The hosted Copilot API routes receive delegated bearer tokens from the API plugin and do not rely on Azure CLI.
+
+Register the deployed App Service URL as a Single-page application redirect URI on the tenant-owned Entra application.
+
+## Deploy Live Reporting and Copilot
+
+In VS Code GitHub Copilot Chat, run `/deploy-finops-copilot` for a one-request workflow that deploys this live-reporting app and its Microsoft 365 Copilot agent package from `m365-agent`.
+
+See [One-Request Copilot Deployment](docs/COPILOT_ONE_REQUEST_DEPLOYMENT.md).
 
 ## Testing
 
