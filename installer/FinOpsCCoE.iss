@@ -1,5 +1,5 @@
 #define AppName "FinOps CCoE Live Reporting"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "FinOps CCoE"
 #define AppExeName "FinOpsCCoE.exe"
 
@@ -21,6 +21,19 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExeName}
 CloseApplications=yes
+CloseApplicationsFilter={#AppExeName}
+RestartApplications=no
+
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+	ResultCode: Integer;
+begin
+	{ A running PyInstaller process locks python311.dll and other bundled files. }
+	Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM {#AppExeName}', '',
+		SW_HIDE, ewWaitUntilTerminated, ResultCode);
+	Result := '';
+end;
 
 [Files]
 Source: "..\dist\FinOpsCCoE\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

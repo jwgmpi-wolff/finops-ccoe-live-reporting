@@ -160,6 +160,8 @@ Start-Process ".\FinOpsCCoE-Setup.exe" -ArgumentList "/VERYSILENT", "/NORESTART"
 
 The installer deploys to `%LOCALAPPDATA%\Programs\FinOpsCCoE` and can be removed from **Settings > Apps > Installed apps**.
 
+During an install or upgrade, Setup automatically closes any running `FinOpsCCoE.exe` process before replacing application files. Open report tabs stop responding after the old process closes; launch the application again after Setup completes. This avoids access-denied prompts for locked bundled files such as `python311.dll`.
+
 ### Build the Windows packages
 
 Build and install it from PowerShell in the repository root:
@@ -191,8 +193,8 @@ Generated application and installer files under `dist` are intentionally exclude
 When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -206,7 +208,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.0.0 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.0.1 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:
