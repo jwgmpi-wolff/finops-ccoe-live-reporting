@@ -8,6 +8,7 @@ A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot 
 - [Screenshots](#screenshots)
 - [Architecture](#architecture)
 - [Features](#key-features)
+- [Download for Windows](#download-for-windows)
 - [Install on Windows](#install-on-windows)
 - [Run locally](#run-locally)
 - [Deploy to Azure Functions](#deploy-to-azure-functions-flex-consumption)
@@ -18,6 +19,7 @@ A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot 
 ## Deploy Buttons
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjerrywolff_microsoft%2Ffinops-ccoe-live-reporting%2Fmain%2Finfra%2Fazuredeploy.json)
+[![Install on Windows](https://img.shields.io/badge/Install-Windows_EXE-0078d4?logo=windows&logoColor=white)](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
 [![Run locally](https://img.shields.io/badge/Run-Locally-2ea44f?logo=powershell&logoColor=white)](#run-locally)
 
 The Azure button opens the ARM template in the Azure portal and provisions the Linux App Service plan and web app. Azure Resource Manager must be able to read the template URL. For a private Enterprise Managed User repository, use [the authenticated PowerShell deployment](#deploy-to-azure-app-service), which provisions the same resources and uploads the application code.
@@ -118,9 +120,47 @@ The agent API is deployed to Azure Container Apps at:
 13. `Dockerfile`: Python 3.11 image for Azure Container Apps.
 14. `infra/azuredeploy.json`: ARM template for the App Service Deploy-to-Azure button.
 
+## Download for Windows
+
+[![Download Windows installer](https://img.shields.io/badge/Download-Windows_Installer-0078d4?logo=windows&logoColor=white)](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
+[![Download portable app](https://img.shields.io/badge/Download-Portable_ZIP-4c8bf5?logo=windows&logoColor=white)](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-portable.zip)
+
+The [latest GitHub release](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest) provides two Windows x64 packages:
+
+| Package | Use |
+| --- | --- |
+| `FinOpsCCoE-Setup.exe` | Recommended per-user installer with Start menu and optional desktop shortcuts. No administrator access or Python installation is required. |
+| `FinOpsCCoE-portable.zip` | Portable application folder. Extract the complete ZIP, then run `FinOpsCCoE.exe`; do not move the EXE away from its bundled files. |
+
+Download `SHA256SUMS.txt` from the same release to verify either package:
+
+```powershell
+$expected = (Select-String -Path ".\SHA256SUMS.txt" -Pattern "FinOpsCCoE-Setup.exe").Line.Split()[0]
+$actual = (Get-FileHash ".\FinOpsCCoE-Setup.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "Installer checksum does not match." }
+```
+
+The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports still require the signed-in user to have Azure CLI or browser OAuth authentication and Azure RBAC access.
+
 ## Install on Windows
 
 The Windows installer is the simplest desktop deployment. It installs per user, requires no administrator rights, adds Start menu and optional desktop shortcuts, and does not require Python on the destination computer.
+
+To install a downloaded release interactively:
+
+```powershell
+Start-Process ".\FinOpsCCoE-Setup.exe"
+```
+
+To deploy it silently for the current Windows user:
+
+```powershell
+Start-Process ".\FinOpsCCoE-Setup.exe" -ArgumentList "/VERYSILENT", "/NORESTART" -Wait
+```
+
+The installer deploys to `%LOCALAPPDATA%\Programs\FinOpsCCoE` and can be removed from **Settings > Apps > Installed apps**.
+
+### Build the Windows packages
 
 Build and install it from PowerShell in the repository root:
 
@@ -147,6 +187,13 @@ Start-Process ".\dist\installer\FinOpsCCoE-Setup.exe" -ArgumentList "/VERYSILENT
 The script creates an isolated `.build-venv`, runs the tests, builds the Application Control-compatible application folder at `dist\FinOpsCCoE`, and packages it as `dist\installer\FinOpsCCoE-Setup.exe`. Inno Setup 6 is installed with `winget` when it is not already available. Use `-SkipInstaller` to build only the application folder.
 
 Generated application and installer files under `dist` are intentionally excluded from Git. Rebuild them from `build-windows.ps1` for each release so the package matches the committed source.
+
+Maintainers publish both packages by pushing a version tag. The `Publish Windows release` GitHub Actions workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 To verify the unpackaged application before installing:
 
