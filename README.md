@@ -32,6 +32,18 @@ Real browser capture showing authentication, tenant and subscription discovery, 
 
 ![Live UI authentication sample](docs/screenshots/ui-auth-live.png)
 
+### Result details
+
+Sanitized live UI capture showing a clickable result record, resource metadata, and the Azure portal handoff. Placeholder identifiers are used in place of tenant data.
+
+![Live result details sample](docs/screenshots/live-result-details.png)
+
+### Successful export
+
+Sanitized live UI capture showing export completion with the committed byte count and the available CSV, PDF, PowerPoint, and SQLite actions.
+
+![Successful export sample](docs/screenshots/export-success.png)
+
 ### Dashboard capabilities
 
 Product diagram of authentication, scope selection, reporting, results, and exports.
