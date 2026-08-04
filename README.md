@@ -188,11 +188,25 @@ The script creates an isolated `.build-venv`, runs the tests, builds the Applica
 
 Generated application and installer files under `dist` are intentionally excluded from Git. Rebuild them from `build-windows.ps1` for each release so the package matches the committed source.
 
-Maintainers publish both packages by pushing a version tag. The `Publish Windows release` GitHub Actions workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
+When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
 git tag v1.0.0
 git push origin v1.0.0
+```
+
+If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
+
+```powershell
+.\build-windows.ps1
+Compress-Archive -Path ".\dist\FinOpsCCoE\*" -DestinationPath ".\dist\FinOpsCCoE-portable.zip" -Force
+$assets = @(".\dist\installer\FinOpsCCoE-Setup.exe", ".\dist\FinOpsCCoE-portable.zip")
+$lines = foreach ($asset in $assets) {
+   $hash = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLowerInvariant()
+   "$hash  $([System.IO.Path]::GetFileName($asset))"
+}
+$lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
+gh release create v1.0.0 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:
