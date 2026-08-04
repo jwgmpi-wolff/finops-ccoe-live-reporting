@@ -136,7 +136,7 @@ Prerequisites for live Azure data:
 1. Azure CLI installed and signed in with `az login`, or `FINOPS_ENTRA_CLIENT_ID` configured for browser OAuth.
 2. Azure RBAC access to the tenants and subscriptions being reported. The application does not elevate the signed-in user.
 
-Exports from the installed application are written to `%LOCALAPPDATA%\FinOpsCCoE\exports`.
+Generated export staging files are written to `%LOCALAPPDATA%\FinOpsCCoE\exports`. When an export button is selected, Microsoft Edge prompts for the final destination and filename; browsers without the native save picker use their configured download behavior.
 
 For a silent per-user installation:
 

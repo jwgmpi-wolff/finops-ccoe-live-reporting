@@ -1021,10 +1021,59 @@ document.getElementById("runReportBtn").addEventListener("click", async () => {
   stopExecution("Report complete");
 });
 
+const exportFileTypes = {
+  csv: {
+    description: "CSV report",
+    mimeType: "text/csv",
+    extension: ".csv",
+  },
+  pdf: {
+    description: "PDF report",
+    mimeType: "application/pdf",
+    extension: ".pdf",
+  },
+  pptx: {
+    description: "PowerPoint report",
+    mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    extension: ".pptx",
+  },
+  sqlite: {
+    description: "SQLite database",
+    mimeType: "application/x-sqlite3",
+    extension: ".sqlite",
+  },
+};
+
+async function chooseExportDestination(type) {
+  if (!("showSaveFilePicker" in window)) {
+    return null;
+  }
+
+  const fileType = exportFileTypes[type];
+  return window.showSaveFilePicker({
+    suggestedName: `finops-report${fileType.extension}`,
+    types: [{
+      description: fileType.description,
+      accept: { [fileType.mimeType]: [fileType.extension] },
+    }],
+  });
+}
+
 for (const button of document.querySelectorAll(".exportBtn")) {
   button.addEventListener("click", async (e) => {
     startExecution("Exporting results...");
     const type = e.target.getAttribute("data-export");
+    let fileHandle;
+    try {
+      fileHandle = await chooseExportDestination(type);
+    } catch (error) {
+      if (error.name === "AbortError") {
+        stopExecution("Export cancelled");
+        return;
+      }
+      throw error;
+    }
+
     const response = await fetch(`/api/export/${type}`);
     if (!response.ok) {
       const data = await response.json();
@@ -1033,10 +1082,19 @@ for (const button of document.querySelectorAll(".exportBtn")) {
       return;
     }
     const blob = await response.blob();
+
+    if (fileHandle) {
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      stopExecution("Export complete");
+      return;
+    }
+
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = href;
-    a.download = `report.${type}`;
+    a.download = `finops-report${exportFileTypes[type].extension}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
