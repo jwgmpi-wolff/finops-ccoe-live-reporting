@@ -31,3 +31,4 @@ local.settings.json
 dist/
 build/
 *.egg-info/
+m365-agent/dist/

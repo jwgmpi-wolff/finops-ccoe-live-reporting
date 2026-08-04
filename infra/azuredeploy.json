@@ -18,6 +18,21 @@
     "planName": {
       "type": "string",
       "defaultValue": "finops-asp-linux"
+    },
+    "skuName": {
+      "type": "string",
+      "defaultValue": "B1",
+      "allowedValues": [
+        "F1",
+        "B1",
+        "B2",
+        "B3",
+        "P0v3",
+        "P1v3"
+      ],
+      "metadata": {
+        "description": "App Service plan SKU. Free F1 is suitable only for evaluation and may not be available in every subscription."
+      }
     }
   },
   "variables": {
@@ -30,8 +45,7 @@
       "name": "[parameters('planName')]",
       "location": "[parameters('location')]",
       "sku": {
-        "name": "B1",
-        "tier": "Basic"
+        "name": "[parameters('skuName')]"
       },
       "kind": "linux",
       "properties": {

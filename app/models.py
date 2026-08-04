@@ -46,6 +46,10 @@ class ReportRequest(BaseModel):
     strict_live_mode: bool = True
 
 
+class AgentReportRequest(ReportRequest):
+    max_rows: int = Field(default=25, ge=1, le=100)
+
+
 class SourceAudit(BaseModel):
     source: str
     endpoint: str
@@ -77,5 +81,23 @@ class ReportResult(BaseModel):
     enrichment_audit: list[dict[str, Any]] = Field(default_factory=list)
     ai_token_tracking: list[dict[str, Any]] = Field(default_factory=list)
     ai_token_summary: list[dict[str, Any]] = Field(default_factory=list)
+    recommendations: list[Recommendation]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AgentReportResponse(BaseModel):
+    domain: ReportDomain
+    tenant_id: str
+    subscription_scope: list[str]
+    generated_at_utc: datetime
+    execution_time_ms: int
+    live_data_confirmed: bool
+    data_quality_score: float
+    unresolved_fields_count: int
+    total_row_count: int
+    returned_row_count: int
+    result_truncated: bool
+    source_audit: list[SourceAudit]
+    rows: list[dict[str, Any]]
     recommendations: list[Recommendation]
     warnings: list[str] = Field(default_factory=list)

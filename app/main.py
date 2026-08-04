@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.models import ReportDomain, ReportRequest
+from app.models import AgentReportRequest, AgentReportResponse, ReportDomain, ReportRequest
 from app.services.azure_live import AzureLiveClient
 from app.services.exporters import export_csv, export_pdf, export_pptx, export_sqlite
 from app.services.reporting import build_report
@@ -89,6 +89,27 @@ async def run_finops_report(
 ):
     del format, page, page_size
     return await index(request)
+
+
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+async def privacy_policy():
+    return HTMLResponse(
+        "<h1>FinOps CCoE Agent Privacy</h1>"
+        "<p>The service processes Azure resource and cost data only for the signed-in user and "
+        "only within subscriptions that user can access. It does not sell personal data or use "
+        "report data to train models. Azure and Microsoft 365 administrators control access, "
+        "retention, and audit policy.</p>"
+    )
+
+
+@app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+async def terms_of_use():
+    return HTMLResponse(
+        "<h1>FinOps CCoE Agent Terms</h1>"
+        "<p>This agent provides informational FinOps analysis from live Azure APIs. Recommendations "
+        "must be reviewed by an authorized operator before changing resources or commitments. The "
+        "service is provided without a guarantee of savings or completeness.</p>"
+    )
 
 
 @app.get("/api/health")
@@ -323,6 +344,46 @@ async def run_report(domain: ReportDomain, payload: ReportRequest, authorization
 
     LAST_REPORT["report"] = report.model_copy(deep=True)
     return report.model_dump()
+
+
+@app.post(
+    "/api/agent/reports/{domain}",
+    operation_id="runFinOpsReport",
+    response_model=AgentReportResponse,
+    tags=["Microsoft 365 Copilot"],
+)
+async def run_agent_report(
+    domain: ReportDomain,
+    payload: AgentReportRequest,
+    authorization: str = Header(default=""),
+):
+    token = _extract_bearer(authorization)
+    try:
+        report = await build_report(domain, payload, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Live query execution failed: {exc}") from exc
+
+    LAST_REPORT["report"] = report.model_copy(deep=True)
+    selected_rows = report.rows[: payload.max_rows]
+    return AgentReportResponse(
+        domain=report.domain,
+        tenant_id=report.tenant_id,
+        subscription_scope=report.subscription_scope,
+        generated_at_utc=report.generated_at_utc,
+        execution_time_ms=report.execution_time_ms,
+        live_data_confirmed=report.live_data_confirmed,
+        data_quality_score=report.data_quality_score,
+        unresolved_fields_count=report.unresolved_fields_count,
+        total_row_count=len(report.rows),
+        returned_row_count=len(selected_rows),
+        result_truncated=len(selected_rows) < len(report.rows),
+        source_audit=report.source_audit,
+        rows=selected_rows,
+        recommendations=report.recommendations,
+        warnings=report.warnings,
+    )
 
 
 @app.get("/api/export/{format_type}")

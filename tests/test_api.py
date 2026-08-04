@@ -11,7 +11,45 @@ from app.services.azure_live import AzureLiveClient
 client = TestClient(app)
 
 
-def test_list_domains_has_14_domains():
+def test_agent_report_returns_bounded_evidence(monkeypatch):
+    async def fake_build_report(domain, payload, bearer_token):
+        assert bearer_token == "agent-token"
+        return ReportResult(
+            domain=domain,
+            tenant_id=payload.tenant_id,
+            subscription_scope=payload.subscription_ids,
+            generated_at_utc=datetime.now(UTC),
+            execution_time_ms=12,
+            data_quality_score=100.0,
+            unresolved_fields_count=0,
+            live_data_confirmed=True,
+            source_audit=[],
+            rows=[{"rank": 1}, {"rank": 2}],
+            recommendations=[],
+            warnings=[],
+        )
+
+    monkeypatch.setattr("app.main.build_report", fake_build_report)
+    response = client.post(
+        "/api/agent/reports/spend_visibility",
+        headers={"Authorization": "Bearer agent-token"},
+        json={
+            "tenant_id": "tenant-a",
+            "subscription_ids": ["sub-a"],
+            "max_rows": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_row_count"] == 2
+    assert payload["returned_row_count"] == 1
+    assert payload["result_truncated"] is True
+    assert payload["rows"] == [{"rank": 1}]
+    LAST_REPORT.clear()
+
+
+def test_list_domains_has_16_domains():
     response = client.get("/api/domains")
     assert response.status_code == 200
     payload = response.json()

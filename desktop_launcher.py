@@ -12,53 +12,55 @@ from app.main import app
 
 
 HOST = "127.0.0.1"
-PORT = 8010
-REPORT_URL = f"http://{HOST}:{PORT}/api/run_finops_report?format=html&page=1&pageSize=25"
 STARTUP_TIMEOUT_SECONDS = 120
 
 
-def _port_is_available() -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        try:
-            probe.bind((HOST, PORT))
-        except OSError:
-            return False
-    return True
+def _reserve_open_port() -> tuple[socket.socket, int]:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind((HOST, 0))
+    listener.listen()
+    return listener, listener.getsockname()[1]
 
 
-def _open_report_when_ready() -> None:
+def _open_report_when_ready(port: int) -> None:
+    report_url = f"http://{HOST}:{port}/api/run_finops_report?format=html&page=1&pageSize=25"
     deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         try:
-            with socket.create_connection((HOST, PORT), timeout=1):
-                webbrowser.open(REPORT_URL)
+            with socket.create_connection((HOST, port), timeout=1):
+                webbrowser.open(report_url)
                 return
         except OSError:
             time.sleep(0.5)
 
 
 def main() -> None:
-    if not _port_is_available():
+    try:
+        listener, port = _reserve_open_port()
+    except OSError as exc:
         messagebox.showerror(
             "FinOps CCoE Live Reporting",
-            f"Port {PORT} is already in use. Close the other local service and try again.",
+            f"The application could not reserve a local port.\n\n{exc}",
         )
         return
 
-    threading.Thread(target=_open_report_when_ready, daemon=True).start()
+    threading.Thread(target=_open_report_when_ready, args=(port,), daemon=True).start()
     try:
-        uvicorn.run(
+        config = uvicorn.Config(
             app,
             host=HOST,
-            port=PORT,
+            port=port,
             log_config=None,
             access_log=False,
         )
+        uvicorn.Server(config).run(sockets=[listener])
     except Exception as exc:
         messagebox.showerror(
             "FinOps CCoE Live Reporting",
             f"The application could not start.\n\n{exc}",
         )
+    finally:
+        listener.close()
 
 
 if __name__ == "__main__":
