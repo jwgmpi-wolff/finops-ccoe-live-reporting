@@ -11,6 +11,10 @@ const regionSelect = document.getElementById("region");
 const tagKeySelect = document.getElementById("tagKey");
 const tagValueSelect = document.getElementById("tagValue");
 const severitySelect = document.getElementById("severity");
+const resultDialog = document.getElementById("resultDialog");
+const resultDialogLabel = document.getElementById("resultDialogLabel");
+const resultDialogTitle = document.getElementById("resultDialogTitle");
+const resultDialogBody = document.getElementById("resultDialogBody");
 
 let latestBearer = "";
 let account = null;
@@ -235,6 +239,87 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function humanizeFieldName(value) {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function findResourceId(item) {
+  const resourceIdEntry = Object.entries(item || {}).find(([key, value]) => {
+    const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    return normalized === "resourceid" && typeof value === "string" && value.startsWith("/subscriptions/");
+  });
+  return resourceIdEntry?.[1] || "";
+}
+
+function appendDialogFields(container, item) {
+  const fields = document.createElement("dl");
+  fields.className = "dialog-fields";
+
+  Object.entries(item || {}).forEach(([key, value]) => {
+    const term = document.createElement("dt");
+    term.textContent = humanizeFieldName(key);
+    const detail = document.createElement("dd");
+    detail.textContent = formatCellValue(value) || "Not returned by source";
+    fields.append(term, detail);
+  });
+  container.appendChild(fields);
+}
+
+function appendRemediationSteps(container, recommendation) {
+  const heading = document.createElement("h3");
+  heading.textContent = "Recommended remediation";
+  container.appendChild(heading);
+
+  const steps = document.createElement("ol");
+  steps.className = "remediation-steps";
+  const action = recommendation.suggested_action || recommendation.suggestedAction || "Review the affected resources and recommendation evidence.";
+  [
+    `Review the evidence and confirm the affected scope: ${recommendation.affected_scope || recommendation.affectedScope || "selected report scope"}.`,
+    action,
+    "Validate the proposed change against workload requirements, ownership, and maintenance policies before applying it.",
+    "Apply the approved change in Azure, then rerun this live report to verify the outcome.",
+  ].forEach((text) => {
+    const step = document.createElement("li");
+    step.textContent = text;
+    steps.appendChild(step);
+  });
+  container.appendChild(steps);
+}
+
+function openResultDialog(title, item, isRecommendation = false) {
+  resultDialogLabel.textContent = isRecommendation ? "Recommendation review" : "Live result record";
+  resultDialogTitle.textContent = title;
+  resultDialogBody.innerHTML = "";
+
+  if (isRecommendation) {
+    appendRemediationSteps(resultDialogBody, item);
+  }
+  appendDialogFields(resultDialogBody, item);
+
+  const resourceId = findResourceId(item);
+  if (resourceId) {
+    const portalLink = document.createElement("a");
+    portalLink.className = "portal-link";
+    portalLink.href = `https://portal.azure.com/#resource${resourceId}/overview`;
+    portalLink.target = "_blank";
+    portalLink.rel = "noopener noreferrer";
+    portalLink.textContent = "Open resource in Azure Portal";
+    resultDialogBody.appendChild(portalLink);
+  }
+
+  resultDialog.showModal();
+}
+
+document.getElementById("closeResultDialog").addEventListener("click", () => resultDialog.close());
+resultDialog.addEventListener("click", (event) => {
+  if (event.target === resultDialog) {
+    resultDialog.close();
+  }
+});
+
 function shouldCollapseSection(title) {
   const normalized = String(title || "").toLowerCase();
   return normalized === "summary" || normalized.startsWith("source audit") || normalized.startsWith("enrichment audit") || normalized === "warnings";
@@ -388,17 +473,22 @@ function buildArrayTable(title, rows) {
 
   const table = document.createElement("table");
   table.className = "result-table";
+  const isRecommendationTable = title.toLowerCase() === "recommendations";
   const headerCells = columns
     .map((col) => {
       const headerClass = isResourceIdColumn(col) ? "col-resourceid" : "";
       return `<th class="${headerClass}">${escapeHtml(col)}</th>`;
     })
     .join("");
-  table.innerHTML = `<thead><tr>${headerCells}</tr></thead>`;
+  const actionHeader = isRecommendationTable ? '<th class="col-action">Action</th>' : "";
+  table.innerHTML = `<thead><tr>${headerCells}${actionHeader}</tr></thead>`;
 
   const body = document.createElement("tbody");
-  rows.forEach((row) => {
+  rows.forEach((row, index) => {
     const tr = document.createElement("tr");
+    tr.className = "result-row-clickable";
+    tr.tabIndex = 0;
+    tr.setAttribute("aria-label", `${isRecommendationTable ? "Review recommendation" : "View result details"} ${index + 1}`);
     tr.innerHTML = columns
       .map((col) => {
         const value = formatCellValue(row?.[col]);
@@ -406,6 +496,32 @@ function buildArrayTable(title, rows) {
         return `<td class="${cellClass}">${escapeHtml(value)}</td>`;
       })
       .join("");
+    if (isRecommendationTable) {
+      const actionCell = document.createElement("td");
+      actionCell.className = "col-action";
+      const actionLink = document.createElement("button");
+      actionLink.type = "button";
+      actionLink.className = "table-action-link";
+      actionLink.textContent = "Remedy steps";
+      actionLink.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openResultDialog(row.category || `Recommendation ${index + 1}`, row, true);
+      });
+      actionCell.appendChild(actionLink);
+      tr.appendChild(actionCell);
+    }
+    const openDetails = () => openResultDialog(
+      isRecommendationTable ? (row.category || `Recommendation ${index + 1}`) : `${title} record ${index + 1}`,
+      row,
+      isRecommendationTable
+    );
+    tr.addEventListener("click", openDetails);
+    tr.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openDetails();
+      }
+    });
     body.appendChild(tr);
   });
   table.appendChild(body);

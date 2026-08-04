@@ -5,6 +5,7 @@ __pycache__/
 *.pyd
 *.so
 .venv/
+.build-venv/
 venv/
 .pytest_cache/
 .mypy_cache/
@@ -24,6 +25,7 @@ exports/
 # Environment
 .env
 .env.*
+local.settings.json
 
 # Build artifacts
 dist/

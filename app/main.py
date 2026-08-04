@@ -3,8 +3,9 @@ from __future__ import annotations
 import subprocess
 from shutil import which
 from pathlib import Path as FsPath
+import sys
 
-from fastapi import FastAPI, Header, HTTPException, Path as ApiPath, Request
+from fastapi import FastAPI, Header, HTTPException, Path as ApiPath, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -18,8 +19,9 @@ from app.services.reporting import build_report
 
 app = FastAPI(title=settings.app_name)
 
-templates = Jinja2Templates(directory="app/templates")
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+APP_ROOT = FsPath(getattr(sys, "_MEIPASS", FsPath(__file__).resolve().parents[1]))
+templates = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
+app.mount("/static", StaticFiles(directory=str(APP_ROOT / "app" / "static")), name="static")
 
 EXPORT_MAP = {
     "csv": export_csv,
@@ -76,6 +78,17 @@ async def index(request: Request):
             "entra_redirect_uri": settings.entra_redirect_uri,
         },
     )
+
+
+@app.get("/api/run_finops_report", response_class=HTMLResponse)
+async def run_finops_report(
+    request: Request,
+    format: str = Query(default="html", pattern="^html$"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, alias="pageSize", ge=1, le=500),
+):
+    del format, page, page_size
+    return await index(request)
 
 
 @app.get("/api/health")

@@ -1,0 +1,15 @@
+.git*
+.venv/
+.build-venv/
+.pytest_cache/
+.vscode/
+build/
+dist/
+docs/
+exports/
+installer/
+tests/
+*.log
+*.spec
+*.ps1
+README.md

@@ -186,6 +186,141 @@ button:hover {
   font-weight: 600;
 }
 
+.result-row-clickable {
+  cursor: pointer;
+}
+
+.result-row-clickable:hover,
+.result-row-clickable:focus-visible {
+  background: #ecfdf5;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.col-action {
+  width: 8rem;
+  white-space: nowrap;
+}
+
+.table-action-link {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #0f5f59;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.table-action-link:hover {
+  filter: none;
+  color: #083f3b;
+}
+
+.result-dialog {
+  width: min(46rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  box-shadow: 0 24px 60px rgb(15 23 42 / 28%);
+}
+
+.result-dialog::backdrop {
+  background: rgb(15 23 42 / 55%);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-header h2,
+.dialog-label {
+  margin: 0;
+}
+
+.dialog-label {
+  margin-bottom: 0.25rem;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dialog-close {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.dialog-body {
+  padding: 1rem;
+  overflow: auto;
+}
+
+.dialog-body h3 {
+  margin-top: 0;
+}
+
+.dialog-fields {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.4fr) minmax(0, 1fr);
+  margin: 1rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.dialog-fields dt,
+.dialog-fields dd {
+  margin: 0;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-fields dt {
+  padding-right: 1rem;
+  font-weight: 700;
+}
+
+.dialog-fields dd {
+  overflow-wrap: anywhere;
+}
+
+.remediation-steps {
+  padding-left: 1.4rem;
+}
+
+.remediation-steps li {
+  margin-bottom: 0.65rem;
+}
+
+.portal-link {
+  display: inline-block;
+  color: #0f5f59;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .dialog-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .dialog-fields dt {
+    padding-bottom: 0.15rem;
+    border-bottom: 0;
+  }
+
+  .dialog-fields dd {
+    padding-top: 0;
+  }
+}
+
 .result-raw {
   font-family: Consolas, "Courier New", monospace;
   white-space: pre-wrap;

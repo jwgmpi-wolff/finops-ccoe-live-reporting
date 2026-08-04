@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FinOps CCoE Live Reporting</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260804-results-dialog" />
 </head>
 <body>
   <header>
@@ -73,6 +73,17 @@
     <div id="results" class="results-grid"></div>
   </section>
 
+  <dialog id="resultDialog" class="result-dialog" aria-labelledby="resultDialogTitle">
+    <div class="dialog-header">
+      <div>
+        <p id="resultDialogLabel" class="dialog-label"></p>
+        <h2 id="resultDialogTitle">Result details</h2>
+      </div>
+      <button id="closeResultDialog" class="dialog-close" type="button" aria-label="Close details">&times;</button>
+    </div>
+    <div id="resultDialogBody" class="dialog-body"></div>
+  </dialog>
+
   <script>
     window.finopsConfig = {
       clientId: "{{ entra_client_id }}",
@@ -80,6 +91,6 @@
       redirectUri: "{{ entra_redirect_uri }}"
     };
   </script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260804-results-dialog"></script>
 </body>
 </html>

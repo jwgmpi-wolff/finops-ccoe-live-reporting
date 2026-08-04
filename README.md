@@ -59,8 +59,30 @@ Shows the export capabilities and deployment workflow highlights used by this pr
 6. `app/services/exporters.py`: CSV/PDF/PPTX/SQLite export builders.
 7. `app/static/app.js`: frontend behavior and report execution flow.
 8. `deploy-local.ps1`: one-command local run.
-9. `deploy-azure.ps1`: App Service provisioning + source deployment.
-10. `infra/azuredeploy.json`: ARM template for Deploy-to-Azure button.
+9. `desktop_launcher.py` and `FinOpsCCoE.spec`: Windows desktop application entry point and package definition.
+10. `build-windows.ps1` and `installer/FinOpsCCoE.iss`: reproducible Windows application and installer build.
+11. `deploy-function.ps1`: Linux Flex Consumption Function App deployment and verification.
+12. `deploy-azure.ps1`: legacy App Service provisioning + source deployment.
+13. `infra/azuredeploy.json`: ARM template for the App Service Deploy-to-Azure button.
+
+## Install on Windows
+
+Install the generated `dist\installer\FinOpsCCoE-Setup.exe`, then launch **FinOps CCoE Live Reporting** from the Start menu. The application starts a local service on `http://127.0.0.1:8010` and opens the report in the default browser.
+
+Prerequisites for live Azure data:
+
+1. Azure CLI installed and signed in with `az login`, or `FINOPS_ENTRA_CLIENT_ID` configured for browser OAuth.
+2. Azure RBAC access to the tenants and subscriptions being reported. The application does not elevate the signed-in user.
+
+Exports from the installed application are written to `%LOCALAPPDATA%\FinOpsCCoE\exports`.
+
+Build the Windows application and per-user installer from source:
+
+```powershell
+.\build-windows.ps1
+```
+
+The script creates an isolated `.build-venv`, runs the tests, builds the Application Control-compatible application folder at `dist\FinOpsCCoE`, and packages it as `dist\installer\FinOpsCCoE-Setup.exe`. Inno Setup 6 is installed with `winget` when it is not already available. Use `-SkipInstaller` to build only the application folder.
 
 ## Quick Start (Local)
 
@@ -79,7 +101,44 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 
 Open: `http://127.0.0.1:8010`
 
-## Deploy to Azure (App Service)
+## Deploy to Azure Functions (Flex Consumption)
+
+Prerequisites:
+
+1. Azure CLI and Azure Functions Core Tools on `PATH`.
+2. Python 3.11 with the project dependencies installed.
+3. An Azure sign-in with permission to create the resource group, storage account, and Function App in the explicit target subscription.
+
+```powershell
+az login
+.\deploy-function.ps1 `
+   -SubscriptionId "<subscription-id>" `
+   -TenantId "<tenant-id>" `
+   -ResourceGroup "rg-finops-functions" `
+   -Location "eastus" `
+   -FunctionAppName "finops-reporting-<unique-suffix>"
+```
+
+The script validates the active tenant and subscription, runs the tests, creates or reuses a Linux Python 3.11 Flex Consumption Function App and deployment storage, publishes with a remote build, and verifies HTTPS health.
+
+Verify after deployment:
+
+```powershell
+Invoke-RestMethod "https://<function-app-name>.azurewebsites.net/api/health"
+Start-Process "https://<function-app-name>.azurewebsites.net/api/run_finops_report"
+```
+
+The HTTP application uses the caller's delegated Azure permissions for live data access. Before production use, configure Function App authentication and appropriate network controls for your organization; do not expose reporting endpoints more broadly than intended.
+
+To remove a dedicated deployment and all resources created in its resource group:
+
+```powershell
+az group delete --name "rg-finops-functions" --subscription "<subscription-id>"
+```
+
+Omit `-TenantId` only when the active Azure CLI tenant has already been independently verified. The script intentionally does not infer a subscription or tenant.
+
+## Deploy to Azure (Legacy App Service)
 
 ```powershell
 ./deploy-azure.ps1 -ResourceGroup rg-finops-live -Location eastus -AppName finops-live-reporting-demo

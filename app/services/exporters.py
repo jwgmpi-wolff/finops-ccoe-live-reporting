@@ -3,9 +3,11 @@ from __future__ import annotations
 import csv
 from collections import Counter
 import json
+import os
 import re
 import sqlite3
 from pathlib import Path
+import sys
 
 from fpdf import FPDF
 from pptx import Presentation
@@ -16,7 +18,10 @@ from pptx.util import Inches, Pt
 from app.models import ReportResult
 
 
-EXPORT_DIR = Path("exports")
+if getattr(sys, "frozen", False):
+    EXPORT_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FinOpsCCoE" / "exports"
+else:
+    EXPORT_DIR = Path("exports")
 
 
 def _pdf_safe_text(text: object, max_chunk: int = 40) -> str:
