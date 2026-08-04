@@ -171,12 +171,14 @@ Build and install it from PowerShell in the repository root:
 Start-Process ".\dist\installer\FinOpsCCoE-Setup.exe"
 ```
 
-Launch **FinOps CCoE Live Reporting** from the Start menu after Setup completes. The application reserves an available loopback port selected by Windows, starts its local service on `127.0.0.1`, and opens the resulting report URL in the default browser. Multiple launches and other services using port `8010` no longer cause a port conflict.
+Launch **FinOps CCoE Live Reporting** from the Start menu after Setup completes. The application reserves an available loopback port selected by Windows, starts one local service on `127.0.0.1`, and opens the resulting report URL in the default browser. Launching the application again reopens the existing report instead of starting another server or authentication flow.
 
 Prerequisites for live Azure data:
 
-1. Azure CLI installed and signed in with `az login`, or `FINOPS_ENTRA_CLIENT_ID` configured for browser OAuth.
+1. Azure CLI installed, or `FINOPS_ENTRA_CLIENT_ID` configured for direct browser OAuth.
 2. Azure RBAC access to the tenants and subscriptions being reported. The application does not elevate the signed-in user.
+
+When the Azure CLI fallback requires authentication, the application opens Microsoft account selection in the default web browser. Azure CLI runs invisibly in the background with its Windows broker and terminal subscription selector disabled, so authentication does not open a terminal or native Windows account-picker dialog. Only one browser sign-in can be active at a time.
 
 Generated export staging files are written to `%LOCALAPPDATA%\FinOpsCCoE\exports`. When an export button is selected, Microsoft Edge prompts for the final destination and filename; browsers without the native save picker use their configured download behavior.
 
@@ -193,8 +195,8 @@ Generated application and installer files under `dist` are intentionally exclude
 When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -208,7 +210,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.0.1 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.0.2 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:

@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from fastapi.testclient import TestClient
 from datetime import UTC, datetime
 
@@ -9,6 +10,57 @@ from app.services.azure_live import AzureLiveClient
 
 
 client = TestClient(app)
+
+
+def test_cli_login_uses_hidden_browser_flow(monkeypatch):
+    captured = {}
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr("app.main._resolve_az_command", lambda: "az.cmd")
+    monkeypatch.setattr("app.main.CLI_LOGIN_PROCESS", None)
+    monkeypatch.setattr("app.main.subprocess.Popen", fake_popen)
+
+    response = client.post("/api/auth/cli-login")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "started"
+    assert captured["kwargs"]["stdin"] is subprocess.DEVNULL
+    assert captured["kwargs"]["stdout"] is subprocess.DEVNULL
+    assert captured["kwargs"]["stderr"] is subprocess.DEVNULL
+    assert captured["kwargs"]["env"]["AZURE_CORE_ENABLE_BROKER_ON_WINDOWS"] == "false"
+    assert captured["kwargs"]["env"]["AZURE_CORE_LOGIN_EXPERIENCE_V2"] == "off"
+
+
+def test_cli_login_reuses_active_browser_flow(monkeypatch):
+    class ActiveProcess:
+        def poll(self):
+            return None
+
+    monkeypatch.setattr("app.main._resolve_az_command", lambda: "az.cmd")
+    monkeypatch.setattr("app.main.CLI_LOGIN_PROCESS", ActiveProcess())
+
+    response = client.post("/api/auth/cli-login")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "already_started"
+
+
+def test_clear_auth_context_stops_active_login(monkeypatch):
+    stopped = []
+    monkeypatch.setattr("app.main._stop_cli_login_process", lambda: stopped.append(True))
+
+    response = client.post("/api/auth/clear-context?clear_cli_session=false")
+
+    assert response.status_code == 200
+    assert stopped == [True]
 
 
 def test_agent_report_returns_bounded_evidence(monkeypatch):
@@ -99,9 +151,13 @@ def test_export_with_report_returns_file():
 
     response = client.get("/api/export/csv")
     assert response.status_code == 200
+    assert len(response.content) > 0
+    assert int(response.headers["content-length"]) == len(response.content)
 
     response = client.get("/api/export/pptx")
     assert response.status_code == 200
+    assert len(response.content) > 0
+    assert int(response.headers["content-length"]) == len(response.content)
     assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.presentationml.presentation")
     assert "report" in LAST_REPORT
 

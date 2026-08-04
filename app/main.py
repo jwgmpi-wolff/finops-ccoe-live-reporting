@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from shutil import which
 from pathlib import Path as FsPath
 import sys
+import threading
 
 from fastapi import FastAPI, Header, HTTPException, Path as ApiPath, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
@@ -38,6 +40,8 @@ EXPORT_MEDIA_TYPES = {
 }
 
 LAST_REPORT: dict[str, object] = {}
+CLI_LOGIN_PROCESS: subprocess.Popen[str] | None = None
+CLI_LOGIN_LOCK = threading.Lock()
 
 
 class ScopeOptionsRequest(BaseModel):
@@ -64,6 +68,43 @@ def _wrap_windows_cmd(az_cmd: str, args: list[str]) -> list[str]:
     if az_cmd.lower().endswith(".cmd"):
         return ["cmd", "/c", *command]
     return command
+
+
+def _azure_cli_process_options() -> dict[str, object]:
+    options: dict[str, object] = {}
+    if sys.platform == "win32":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW
+    return options
+
+
+def _azure_cli_login_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["AZURE_CORE_ENABLE_BROKER_ON_WINDOWS"] = "false"
+    environment["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "off"
+    return environment
+
+
+def _stop_cli_login_process() -> None:
+    global CLI_LOGIN_PROCESS
+    with CLI_LOGIN_LOCK:
+        process = CLI_LOGIN_PROCESS
+        CLI_LOGIN_PROCESS = None
+        if process is None or process.poll() is not None:
+            return
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                **_azure_cli_process_options(),
+            )
+        else:
+            process.terminate()
+
+
+app.add_event_handler("shutdown", _stop_cli_login_process)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -138,6 +179,7 @@ async def get_cli_token():
             text=True,
             timeout=120,
             check=False,
+            **_azure_cli_process_options(),
         )
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -170,51 +212,61 @@ async def get_cli_token():
 async def cli_login(tenant_id: str | None = None, force_reauth: bool = False):
     az_cmd = _resolve_az_command()
 
-    if force_reauth:
-        try:
-            logout_command = _wrap_windows_cmd(az_cmd, ["logout"])
-            subprocess.run(
-                logout_command,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
-            clear_command = _wrap_windows_cmd(az_cmd, ["account", "clear"])
-            subprocess.run(
-                clear_command,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
-        except Exception:
-            # Continue to login attempt even if prior session cleanup fails.
-            pass
-
     login_args = ["login", "--allow-no-subscriptions"]
     if tenant_id:
         login_args.extend(["--tenant", tenant_id])
 
     command = _wrap_windows_cmd(az_cmd, login_args)
 
-    try:
-        subprocess.Popen(command)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to initiate Microsoft login: {exc}",
-        ) from exc
+    global CLI_LOGIN_PROCESS
+    with CLI_LOGIN_LOCK:
+        if CLI_LOGIN_PROCESS is not None and CLI_LOGIN_PROCESS.poll() is None:
+            return {
+                "status": "already_started",
+                "message": "Microsoft browser sign-in is already in progress.",
+            }
+
+        if force_reauth:
+            try:
+                for args in (["logout"], ["account", "clear"]):
+                    subprocess.run(
+                        _wrap_windows_cmd(az_cmd, args),
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=False,
+                        **_azure_cli_process_options(),
+                    )
+            except Exception:
+                pass
+
+        try:
+            CLI_LOGIN_PROCESS = subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                env=_azure_cli_login_environment(),
+                **_azure_cli_process_options(),
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to initiate Microsoft login: {exc}",
+            ) from exc
 
     return {
         "status": "started",
-        "message": "Microsoft login initiated. Complete sign-in in the opened browser, then click Use Azure CLI Session.",
+        "message": "Microsoft login opened in your default browser. Complete sign-in there, then click Use Azure CLI Session.",
     }
 
 
 @app.post("/api/auth/clear-context")
 async def clear_auth_context(clear_cli_session: bool = False):
     cleared = {"report_cache": False, "cli_session": False}
+
+    _stop_cli_login_process()
 
     if "report" in LAST_REPORT:
         LAST_REPORT.clear()
@@ -230,6 +282,7 @@ async def clear_auth_context(clear_cli_session: bool = False):
                 text=True,
                 timeout=60,
                 check=False,
+                **_azure_cli_process_options(),
             )
             cleared["cli_session"] = proc.returncode == 0
         except Exception:

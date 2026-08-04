@@ -710,7 +710,7 @@ async function beginPkceLogin() {
   if (!oauthConfig.clientId) {
     startExecution("Initiating Microsoft login...");
     authInProgress = true;
-    contextState.textContent = "Opening Microsoft login for account selection...";
+    contextState.textContent = "Opening web-based Microsoft account selection...";
     const loginResponse = await fetch("/api/auth/cli-login?force_reauth=true", { method: "POST" });
     const loginPayload = await loginResponse.json();
     if (!loginResponse.ok) {
@@ -721,7 +721,7 @@ async function beginPkceLogin() {
       return;
     }
     renderResults({ microsoft_login: loginPayload.status, details: loginPayload.message });
-    contextState.textContent = "Microsoft login initiated. Waiting for sign-in completion...";
+    contextState.textContent = "Microsoft sign-in opened in your browser. Waiting for completion...";
 
     const loginComplete = await waitForCliSessionReady();
     if (!loginComplete) {
@@ -1063,43 +1063,58 @@ for (const button of document.querySelectorAll(".exportBtn")) {
   button.addEventListener("click", async (e) => {
     startExecution("Exporting results...");
     const type = e.target.getAttribute("data-export");
-    let fileHandle;
     try {
-      fileHandle = await chooseExportDestination(type);
+      const response = await fetch(`/api/export/${type}`, { cache: "no-store" });
+      if (!response.ok) {
+        const data = await response.json();
+        renderResults(data);
+        stopExecution("Export failed");
+        return;
+      }
+
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength === 0) {
+        throw new Error("The export service returned an empty file.");
+      }
+
+      const fileHandle = await chooseExportDestination(type);
+      if (fileHandle) {
+        const writable = await fileHandle.createWritable();
+        try {
+          await writable.write({ type: "write", position: 0, data: bytes });
+          await writable.truncate(bytes.byteLength);
+          await writable.close();
+        } catch (error) {
+          try {
+            await writable.abort();
+          } catch {
+            // The stream may already be closed after a filesystem error.
+          }
+          throw error;
+        }
+        stopExecution(`Export complete (${bytes.byteLength.toLocaleString()} bytes)`);
+        return;
+      }
+
+      const blob = new Blob([bytes], { type: exportFileTypes[type].mimeType });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `finops-report${exportFileTypes[type].extension}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+      stopExecution(`Export complete (${bytes.byteLength.toLocaleString()} bytes)`);
     } catch (error) {
       if (error.name === "AbortError") {
         stopExecution("Export cancelled");
         return;
       }
-      throw error;
-    }
 
-    const response = await fetch(`/api/export/${type}`);
-    if (!response.ok) {
-      const data = await response.json();
-      renderResults(data);
+      renderResults({ exportError: String(error), format: type });
       stopExecution("Export failed");
-      return;
     }
-    const blob = await response.blob();
-
-    if (fileHandle) {
-      const writable = await fileHandle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      stopExecution("Export complete");
-      return;
-    }
-
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = `finops-report${exportFileTypes[type].extension}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(href);
-    stopExecution("Export complete");
   });
 }
 
