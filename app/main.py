@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 from shutil import which
@@ -19,7 +20,8 @@ from app.services.azure_live import AzureLiveClient
 from app.services.exporters import export_csv, export_pdf, export_pptx, export_sqlite
 from app.services.reporting import build_report
 
-app = FastAPI(title=settings.app_name)
+APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.0.3")
+app = FastAPI(title=settings.app_name, version=APP_VERSION)
 
 APP_ROOT = FsPath(getattr(sys, "_MEIPASS", FsPath(__file__).resolve().parents[1]))
 templates = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
@@ -40,6 +42,7 @@ EXPORT_MEDIA_TYPES = {
 }
 
 LAST_REPORT: dict[str, object] = {}
+EXPORT_LOCKS = {format_type: asyncio.Lock() for format_type in EXPORT_MAP}
 CLI_LOGIN_PROCESS: subprocess.Popen[str] | None = None
 CLI_LOGIN_LOCK = threading.Lock()
 
@@ -155,7 +158,7 @@ async def terms_of_use():
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": settings.app_name}
+    return {"status": "ok", "service": settings.app_name, "version": APP_VERSION}
 
 
 @app.get("/api/auth/cli-token")
@@ -395,7 +398,9 @@ async def run_report(domain: ReportDomain, payload: ReportRequest, authorization
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Live query execution failed: {exc}") from exc
 
+    LAST_REPORT.clear()
     LAST_REPORT["report"] = report.model_copy(deep=True)
+    LAST_REPORT["exports"] = {}
     return report.model_dump()
 
 
@@ -418,7 +423,9 @@ async def run_agent_report(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Live query execution failed: {exc}") from exc
 
+    LAST_REPORT.clear()
     LAST_REPORT["report"] = report.model_copy(deep=True)
+    LAST_REPORT["exports"] = {}
     selected_rows = report.rows[: payload.max_rows]
     return AgentReportResponse(
         domain=report.domain,
@@ -449,8 +456,25 @@ async def export_latest_report(format_type: str = ApiPath(pattern="^(csv|pdf|ppt
         raise HTTPException(status_code=400, detail="Unsupported export format")
 
     report = LAST_REPORT["report"].model_copy(deep=True)
-    output = exporter(report)
-    output_path = FsPath(output)
+    report_key = report.generated_at_utc.isoformat()
+
+    async with EXPORT_LOCKS[format_type]:
+        cached_exports = LAST_REPORT.get("exports", {})
+        cached_output = cached_exports.get(format_type) if isinstance(cached_exports, dict) else None
+        output_path = FsPath(cached_output) if cached_output else None
+
+        if output_path is None or not output_path.exists() or output_path.stat().st_size == 0:
+            output = await asyncio.to_thread(exporter, report)
+            output_path = FsPath(output)
+            current_report = LAST_REPORT.get("report")
+            if (
+                current_report is not None
+                and current_report.generated_at_utc.isoformat() == report_key
+            ):
+                exports = LAST_REPORT.setdefault("exports", {})
+                if isinstance(exports, dict):
+                    exports[format_type] = str(output_path)
+
     return FileResponse(output_path, filename=output_path.name, media_type=EXPORT_MEDIA_TYPES.get(format_type))
 
 

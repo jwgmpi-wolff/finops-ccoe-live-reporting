@@ -50,6 +50,7 @@ Write-Host "[5/6] Applying runtime settings..."
 $appSettings = @(
   "SCM_DO_BUILD_DURING_DEPLOYMENT=true",
   "WEBSITES_PORT=8000",
+  "FINOPS_APP_VERSION=1.0.3",
   "FINOPS_ENTRA_AUTHORITY=$EntraAuthority",
   "FINOPS_ENTRA_REDIRECT_URI=https://$AppName.azurewebsites.net"
 )

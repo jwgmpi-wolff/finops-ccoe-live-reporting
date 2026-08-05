@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-  "contentVersion": "1.0.0.0",
+  "contentVersion": "1.0.3.0",
   "parameters": {
     "appName": {
       "type": "string",
@@ -75,6 +75,10 @@
             {
               "name": "WEBSITES_PORT",
               "value": "8000"
+            },
+            {
+              "name": "FINOPS_APP_VERSION",
+              "value": "1.0.3"
             }
           ]
         }

@@ -73,6 +73,11 @@ if (-not $existingApp) {
   Write-Host "[5/7] Function App already exists; preserving its resource configuration."
 }
 
+Invoke-External -FilePath "az" -Arguments @(
+  "functionapp", "config", "appsettings", "set", "--name", $FunctionAppName,
+  "--resource-group", $ResourceGroup, "--settings", "FINOPS_APP_VERSION=1.0.3", "--output", "none"
+)
+
 Write-Host "[6/7] Publishing application code with a remote build..."
 Invoke-External -FilePath "func" -Arguments @("azure", "functionapp", "publish", $FunctionAppName, "--python", "--build", "remote")
 

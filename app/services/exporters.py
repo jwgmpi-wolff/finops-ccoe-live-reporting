@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-from collections import Counter
 import json
 import os
 import re
@@ -12,7 +11,7 @@ import sys
 from fpdf import FPDF
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Inches, Pt
 
 from app.models import ReportResult
@@ -44,6 +43,78 @@ def _pdf_table_text(value: object, max_chunk: int = 36) -> str:
 
 def ensure_export_dir() -> None:
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_number(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_money(value: float) -> str:
+    return f"${value:,.2f}"
+
+
+def build_executive_brief(report: ReportResult) -> dict[str, object]:
+    total_cost = sum(_safe_number(row.get("cost")) for row in report.rows)
+    total_savings = sum(
+        _safe_number(row.get("savingsEstimate") or row.get("annualSavingsAmount"))
+        for row in report.rows
+    )
+    orphaned_resources = sum(
+        1
+        for row in report.rows
+        if "orphan" in " ".join(
+            str(row.get(field, ""))
+            for field in ("recommendationType", "category", "resourceName", "reason")
+        ).lower()
+    )
+
+    savings_evidence = (
+        f"Live report identifies {_format_money(total_savings)} in potential savings."
+        if total_savings > 0
+        else "Live savings evidence is not present in this report; validate the opportunity with Azure Advisor data."
+    )
+    orphan_evidence = (
+        f"{orphaned_resources} orphan-related result(s) are visible in the current report."
+        if orphaned_resources > 0
+        else "Run or refresh orphan-resource detection to establish the cleanup baseline."
+    )
+
+    return {
+        "title": "FinOps FY27 Executive Action Report",
+        "subtitle": report.domain.value.replace("_", " ").title(),
+        "headline": "Begin cost-savings execution immediately while strengthening governance and reporting.",
+        "metrics": [
+            ("Live potential savings", _format_money(total_savings) if total_savings > 0 else "Not available in this report"),
+            ("Cost represented", _format_money(total_cost) if total_cost > 0 else "Not available in this report"),
+            ("Resources analyzed", f"{len(report.rows):,}"),
+            ("Recommendations", f"{len(report.recommendations):,}"),
+            ("Data quality", f"{report.data_quality_score:.1f}%"),
+        ],
+        "priorities": [
+            ("Activate savings now", f"Prioritize Azure Advisor recommendations and orphan-resource cleanup. {savings_evidence} {orphan_evidence}"),
+            ("Refresh governance", "Fine-tune FinOps governance, define FY27 KPIs and metrics, and update the RACI for current stakeholders."),
+            ("Productionize reporting", "Complete API pagination, validate all returned pages, and move the makeshift Advisor dashboard to a governed operational view."),
+            ("Align platform engineering", "Add cost and savings estimates to Terraform re-architecture and disaster-recovery work so benefits are visible with delivery progress."),
+        ],
+        "actions": [
+            ("0-30 days", "Validate Advisor savings, inventory orphaned resources, assign owners, and approve quick-win remediation."),
+            ("31-60 days", "Publish refreshed RACI and KPI definitions; complete dashboard pagination and data-quality controls."),
+            ("61-90 days", "Report realized savings and incorporate cost estimates and preventive controls into platform-engineering automation."),
+        ],
+        "executive_decisions": [
+            "Confirm accountable owners for savings realization and governance updates.",
+            "Approve the Advisor and orphan-resource remediation sequence.",
+            "Set the reporting cadence for validated savings, KPI progress, and platform-engineering benefits.",
+        ],
+        "evidence_note": (
+            f"Based on {len(report.rows)} live result(s), {len(report.recommendations)} recommendation(s), "
+            f"and {len(report.source_audit)} source call(s) collected at "
+            f"{report.generated_at_utc.strftime('%Y-%m-%d %H:%M UTC')}. All values are calculated from this report run."
+        ),
+    }
 
 
 def export_csv(report: ReportResult) -> Path:
@@ -243,6 +314,7 @@ def export_sqlite(report: ReportResult) -> Path:
 def export_pdf(report: ReportResult) -> Path:
     ensure_export_dir()
     output = EXPORT_DIR / f"{report.domain.value}_{report.generated_at_utc.strftime('%Y%m%d_%H%M%S')}.pdf"
+    brief = build_executive_brief(report)
 
     pdf = FPDF(orientation="L")
     pdf.add_page()
@@ -294,9 +366,9 @@ def export_pdf(report: ReportResult) -> Path:
     pdf.set_text_color(*palette["white"])
     pdf.set_font("Helvetica", "B", 18)
     pdf.set_xy(pdf.l_margin, 10)
-    pdf.cell(page_width, 8, "FinOps Executive Report", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(page_width, 8, _pdf_safe_text(brief["title"]), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
-    pdf.cell(page_width, 6, f"Domain: {report.domain.value.replace('_', ' ').title()}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(page_width, 6, _pdf_safe_text(brief["subtitle"]), new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_text_color(*palette["slate"])
     pdf.ln(6)
@@ -304,14 +376,35 @@ def export_pdf(report: ReportResult) -> Path:
     # Executive summary
     section_title("Executive Summary")
     pdf.set_font("Helvetica", "", 10)
-    def safe_number(value: object) -> float:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return 0.0
+    pdf.multi_cell(page_width, 6, _pdf_table_text(brief["headline"], 40))
+    for label, value in brief["metrics"]:
+        ensure_space(6)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(page_width, 6, _pdf_table_text(f"{label}: {value}", 40))
 
-    def format_money(value: float) -> str:
-        return f"${value:,.2f}"
+    section_title("Executive Priorities")
+    pdf.set_font("Helvetica", "", 9)
+    for title, detail in brief["priorities"]:
+        ensure_space(8)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(page_width, 5.5, _pdf_table_text(f"{title}: {detail}", 40))
+
+    section_title("90-Day Action Plan")
+    pdf.set_font("Helvetica", "", 9)
+    for period, action in brief["actions"]:
+        ensure_space(8)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(page_width, 5.5, _pdf_table_text(f"{period}: {action}", 40))
+
+    section_title("Executive Decisions")
+    pdf.set_font("Helvetica", "", 9)
+    for decision in brief["executive_decisions"]:
+        ensure_space(7)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(page_width, 5.5, _pdf_table_text(f"- {decision}", 40))
+    ensure_space(8)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(page_width, 5.5, _pdf_table_text(brief["evidence_note"], 40))
 
     def row_summary(row: dict[str, object]) -> str:
         if row.get("recommendationType"):
@@ -321,7 +414,7 @@ def export_pdf(report: ReportResult) -> Path:
             if row.get("impact"):
                 parts.append(f"impact {row.get('impact')}")
             if row.get("savingsEstimate") not in (None, ""):
-                parts.append(f"estimated savings {format_money(safe_number(row.get('savingsEstimate')))}")
+                parts.append(f"estimated savings {_format_money(_safe_number(row.get('savingsEstimate')))}")
             return " | ".join(parts)
 
         parts = []
@@ -330,50 +423,14 @@ def export_pdf(report: ReportResult) -> Path:
             if value not in (None, ""):
                 parts.append(f"{field}: {_pdf_table_text(value, 18)}")
         if row.get("cost") not in (None, ""):
-            parts.append(f"cost {format_money(safe_number(row.get('cost')))}")
+            parts.append(f"cost {_format_money(_safe_number(row.get('cost')))}")
         if row.get("usageQuantity") not in (None, ""):
             parts.append(f"usage {_pdf_table_text(row.get('usageQuantity'), 18)}")
         if row.get("estimatedTokenUnits") not in (None, ""):
             parts.append(f"tokens {_pdf_table_text(row.get('estimatedTokenUnits'), 18)}")
         if row.get("savingsEstimate") not in (None, ""):
-            parts.append(f"estimated savings {format_money(safe_number(row.get('savingsEstimate')))}")
+            parts.append(f"estimated savings {_format_money(_safe_number(row.get('savingsEstimate')))}")
         return " | ".join(parts) or "Result item"
-
-    def summarize_top(counter: Counter[str]) -> str | None:
-        if not counter:
-            return None
-        label, count = counter.most_common(1)[0]
-        if label == "Unspecified":
-            return None
-        return f"{label} ({count} result(s))"
-
-    total_cost = sum(safe_number(row.get("cost")) for row in report.rows)
-    total_savings = sum(
-        safe_number(row.get("savingsEstimate") or row.get("annualSavingsAmount"))
-        for row in report.rows
-    )
-    top_subscription = summarize_top(Counter(str(row.get("subscriptionId") or "Unspecified") for row in report.rows))
-    top_service = summarize_top(Counter(str(row.get("serviceName") or row.get("category") or row.get("recommendationType") or "Unspecified") for row in report.rows))
-    top_resource_group = summarize_top(Counter(str(row.get("resourceGroup") or "Unspecified") for row in report.rows))
-
-    summary_lines = [
-        f"Results captured: {len(report.rows)}",
-        f"Recommendations generated: {len(report.recommendations)}",
-    ]
-    if total_cost > 0:
-        summary_lines.append(f"Total cost identified: {format_money(total_cost)}")
-    if total_savings > 0:
-        summary_lines.append(f"Potential savings identified: {format_money(total_savings)}")
-    if top_subscription:
-        summary_lines.append(f"Top subscription by result count: {top_subscription}")
-    if top_service:
-        summary_lines.append(f"Top service or category: {top_service}")
-    if top_resource_group:
-        summary_lines.append(f"Top resource group: {top_resource_group}")
-    for line in summary_lines:
-        ensure_space(6)
-        pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(page_width, 6, _pdf_table_text(line, 40))
 
     # Recommendations table
     recommendation_rows = [
@@ -437,6 +494,7 @@ def export_pdf(report: ReportResult) -> Path:
 def export_pptx(report: ReportResult) -> Path:
     ensure_export_dir()
     output = EXPORT_DIR / f"{report.domain.value}_{report.generated_at_utc.strftime('%Y%m%d_%H%M%S')}.pptx"
+    brief = build_executive_brief(report)
 
     presentation = Presentation()
     presentation.slide_width = Inches(13.333)
@@ -460,6 +518,8 @@ def export_pptx(report: ReportResult) -> Path:
         align: PP_ALIGN = PP_ALIGN.LEFT,
     ) -> None:
         text_frame.clear()
+        text_frame.word_wrap = True
+        text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         paragraph = text_frame.paragraphs[0]
         paragraph.text = str(text)
         paragraph.alignment = align
@@ -478,12 +538,12 @@ def export_pptx(report: ReportResult) -> Path:
         banner.line.fill.background()
 
         title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(12.3), Inches(0.5))
-        set_text(title_box.text_frame, "FinOps Executive Report", size=26, bold=True, color=palette["white"])
+        set_text(title_box.text_frame, str(brief["title"]), size=26, bold=True, color=palette["white"])
 
         domain_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.75), Inches(12.3), Inches(0.35))
         set_text(
             domain_box.text_frame,
-            f"Domain: {report.domain.value.replace('_', ' ').title()}",
+            str(brief["subtitle"]),
             size=12,
             color=palette["white"],
         )
@@ -497,6 +557,8 @@ def export_pptx(report: ReportResult) -> Path:
         ]
         text_frame = summary_box.text_frame
         text_frame.clear()
+        text_frame.word_wrap = True
+        text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         for idx, line in enumerate(summary_lines):
             paragraph = text_frame.paragraphs[0] if idx == 0 else text_frame.add_paragraph()
             paragraph.text = line
@@ -511,21 +573,15 @@ def export_pptx(report: ReportResult) -> Path:
         header = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.0), Inches(0.5))
         set_text(header.text_frame, "Executive Summary", size=22, bold=True, color=palette["navy"])
 
-        total_ai_usage = sum(float(row.get("totalUsageQuantity", 0) or 0) for row in report.ai_token_summary)
-        total_ai_tokens = sum(float(row.get("totalEstimatedTokenUnits", 0) or 0) for row in report.ai_token_summary)
-
-        bullets = [
-            f"Rows analyzed: {len(report.rows)}",
-            f"Recommendations: {len(report.recommendations)}",
-            f"Source API calls: {len(report.source_audit)}",
-            f"AI usage quantity total: {round(total_ai_usage, 4)}",
-            f"AI estimated token units total: {round(total_ai_tokens, 4)}",
-            f"Warnings: {len(report.warnings)}",
-        ]
+        bullets = [str(brief["headline"])] + [
+            f"{label}: {value}" for label, value in brief["metrics"]
+        ] + [str(brief["evidence_note"])]
 
         body = slide.shapes.add_textbox(Inches(0.7), Inches(1.0), Inches(12.0), Inches(4.8))
         tf = body.text_frame
         tf.clear()
+        tf.word_wrap = True
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
         for idx, line in enumerate(bullets):
             paragraph = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
             paragraph.text = line
@@ -533,6 +589,26 @@ def export_pptx(report: ReportResult) -> Path:
             if paragraph.runs:
                 run = paragraph.runs[0]
                 run.font.size = Pt(16 if idx == 0 else 13)
+                run.font.color.rgb = palette["slate"]
+
+    def add_bullet_slide(title: str, bullets: list[str]) -> None:
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        header = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.0), Inches(0.5))
+        set_text(header.text_frame, title, size=22, bold=True, color=palette["navy"])
+
+        body = slide.shapes.add_textbox(Inches(0.7), Inches(1.0), Inches(12.0), Inches(5.5))
+        text_frame = body.text_frame
+        text_frame.clear()
+        text_frame.word_wrap = True
+        text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        for index, line in enumerate(bullets):
+            paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
+            paragraph.text = line
+            paragraph.level = 0
+            paragraph.space_after = Pt(12)
+            if paragraph.runs:
+                run = paragraph.runs[0]
+                run.font.size = Pt(14)
                 run.font.color.rgb = palette["slate"]
 
     def add_section_divider(title: str, subtitle: str) -> None:
@@ -567,22 +643,29 @@ def export_pptx(report: ReportResult) -> Path:
             return
 
         columns = [col for col in preferred_columns if any(col in row for row in rows)]
-        if not columns:
-            columns = list(rows[0].keys())[:6]
-        columns = columns[:10]
+        for row in rows:
+            columns.extend(col for col in row if col not in columns)
 
-        resource_id_present = "resourceId" in columns
-        non_resource_columns = [col for col in columns if col != "resourceId"]
-
-        column_groups: list[list[str]] = []
-        chunk_size = 4 if len(columns) >= 6 else 5
-        for start in range(0, len(non_resource_columns), chunk_size):
-            column_groups.append(non_resource_columns[start:start + chunk_size])
-        if resource_id_present:
-            column_groups.append(["resourceId"])
-
+        index_candidates = [
+            "serviceScope",
+            "subscriptionId",
+            "resourceName",
+            "category",
+            "source",
+            "serviceName",
+            "scope",
+            "resourceId",
+        ]
+        index_columns = [col for col in index_candidates if col in columns][:3]
+        detail_columns = [col for col in columns if col not in index_columns]
+        fixed_columns = ["__rowNumber", *index_columns]
+        detail_chunk_size = max(1, 6 - len(fixed_columns))
+        column_groups = [
+            [*fixed_columns, *detail_columns[start:start + detail_chunk_size]]
+            for start in range(0, len(detail_columns), detail_chunk_size)
+        ]
         if not column_groups:
-            column_groups = [columns[:4]]
+            column_groups = [fixed_columns]
 
         for group_index, group_columns in enumerate(column_groups, start=1):
             group_rows_per_slide = rows_per_slide
@@ -602,52 +685,83 @@ def export_pptx(report: ReportResult) -> Path:
                     column_label = ""
                 set_text(header.text_frame, f"{title}{column_label}{suffix}", size=18, bold=True, color=palette["navy"])
 
+                max_table_width = 12.5
+                preferred_widths = []
+                for col in group_columns:
+                    values = [str(row.get(col, "")) for row in chunk]
+                    header_text = "Row" if col == "__rowNumber" else col
+                    longest = max([len(header_text), *(min(len(value), 72) for value in values)])
+                    if col == "__rowNumber":
+                        preferred_widths.append(0.55)
+                    elif col == "resourceId":
+                        preferred_widths.append(min(7.5, max(3.5, longest * 0.085)))
+                    elif col in {"action", "evidence", "endpoint", "warning"}:
+                        preferred_widths.append(min(6.0, max(2.4, longest * 0.085)))
+                    elif col in {"resourceName", "serviceName", "serviceScope", "resourceType", "resourceGroup", "category", "scope"}:
+                        preferred_widths.append(min(4.0, max(1.5, longest * 0.085)))
+                    else:
+                        preferred_widths.append(min(2.8, max(1.15, longest * 0.085)))
+
+                preferred_total = sum(preferred_widths)
+                if preferred_total > max_table_width:
+                    scale = max_table_width / preferred_total
+                    widths = [width * scale for width in preferred_widths]
+                else:
+                    widths = preferred_widths
+                table_width = sum(widths)
+
+                header_height = 0.38
+                data_row_height = min(0.62, max(0.36, 5.7 / max(1, len(chunk))))
+                table_height = header_height + (data_row_height * len(chunk))
                 table_shape = slide.shapes.add_table(
                     len(chunk) + 1,
                     len(group_columns),
                     Inches(0.4),
                     Inches(0.8),
-                    Inches(12.5),
-                    Inches(6.3),
+                    Inches(table_width),
+                    Inches(table_height),
                 )
                 table = table_shape.table
 
-                total_width = 12.5
-                weights = []
-                for col in group_columns:
-                    if col == "resourceId":
-                        weights.append(3.2)
-                    elif col in {"resourceName", "serviceName", "resourceType", "resourceGroup", "endpoint"}:
-                        weights.append(2.0)
-                    elif col in {"cost", "usageQuantity", "estimatedTokenUnits", "records", "totalUsageQuantity", "averageUsageQuantity", "totalEstimatedTokenUnits", "averageEstimatedTokenUnits", "totalCost", "averageCost"}:
-                        weights.append(1.3)
-                    else:
-                        weights.append(1.6)
-                weight_sum = sum(weights) or 1.0
-                widths = [(total_width * weight) / weight_sum for weight in weights]
-
                 for idx, width in enumerate(widths):
                     table.columns[idx].width = Inches(width)
+                table.rows[0].height = Inches(header_height)
+                for row_index in range(1, len(table.rows)):
+                    table.rows[row_index].height = Inches(data_row_height)
 
                 for col_idx, col in enumerate(group_columns):
                     cell = table.cell(0, col_idx)
-                    cell.text = col
+                    cell.text = "Row" if col == "__rowNumber" else col
                     cell.fill.solid()
                     cell.fill.fore_color.rgb = palette["teal"]
+                    cell.margin_left = Inches(0.08)
+                    cell.margin_right = Inches(0.08)
+                    cell.margin_top = Inches(0.04)
+                    cell.margin_bottom = Inches(0.04)
+                    cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    cell.text_frame.word_wrap = True
+                    cell.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
                     if cell.text_frame.paragraphs and cell.text_frame.paragraphs[0].runs:
                         run = cell.text_frame.paragraphs[0].runs[0]
                         run.font.bold = True
-                        run.font.size = Pt(10)
+                        run.font.size = Pt(9)
                         run.font.color.rgb = palette["white"]
 
                 for row_idx, row in enumerate(chunk, start=1):
                     row_fill = palette["white"] if row_idx % 2 else palette["pale"]
                     for col_idx, col in enumerate(group_columns):
-                        value = _pdf_safe_text(row.get(col, ""), 28)
+                        value = start + row_idx if col == "__rowNumber" else _pdf_safe_text(row.get(col, ""), 28)
                         cell = table.cell(row_idx, col_idx)
                         cell.fill.solid()
                         cell.fill.fore_color.rgb = row_fill
                         cell.text = str(value)
+                        cell.margin_left = Inches(0.08)
+                        cell.margin_right = Inches(0.08)
+                        cell.margin_top = Inches(0.04)
+                        cell.margin_bottom = Inches(0.04)
+                        cell.vertical_anchor = MSO_ANCHOR.TOP
+                        cell.text_frame.word_wrap = True
+                        cell.text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
                         if cell.text_frame.paragraphs and cell.text_frame.paragraphs[0].runs:
                             run = cell.text_frame.paragraphs[0].runs[0]
                             run.font.size = Pt(8 if len(group_columns) >= 4 else 9)
@@ -655,6 +769,18 @@ def export_pptx(report: ReportResult) -> Path:
 
     add_title_slide()
     add_summary_slide()
+    add_bullet_slide(
+        "Executive Priorities",
+        [f"{title}: {detail}" for title, detail in brief["priorities"]],
+    )
+    add_bullet_slide(
+        "90-Day Action Plan",
+        [f"{period}: {action}" for period, action in brief["actions"]],
+    )
+    add_bullet_slide(
+        "Executive Decisions",
+        [str(decision) for decision in brief["executive_decisions"]],
+    )
 
     if report.recommendations:
         add_section_divider("Detailed Findings", "Recommendations and report outputs follow on the next slides.")

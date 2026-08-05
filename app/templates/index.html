@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FinOps CCoE Live Reporting</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260804-export-picker" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260805-subscription-filter" />
 </head>
 <body>
   <header>
@@ -36,6 +36,10 @@
     </div>
     <div>
       <h2>Subscriptions</h2>
+      <label class="subscription-filter">Filter subscriptions
+        <input type="search" id="subscriptionFilter" placeholder="Name or subscription ID" autocomplete="off" />
+      </label>
+      <span id="subscriptionFilterStatus" class="filter-status" aria-live="polite"></span>
       <label><input type="checkbox" id="selectAllSubs" /> Select all</label>
       <div id="subscriptionList" class="scroll"></div>
     </div>
@@ -59,11 +63,11 @@
   </section>
 
   <section class="card">
-    <h2>Export</h2>
+    <h2>Executive Reports &amp; Data Exports</h2>
     <div class="row">
+      <button data-export="pdf" class="exportBtn">Create Executive PDF</button>
+      <button data-export="pptx" class="exportBtn">Create Executive PowerPoint</button>
       <button data-export="csv" class="exportBtn">Export CSV</button>
-      <button data-export="pdf" class="exportBtn">Export PDF</button>
-      <button data-export="pptx" class="exportBtn">Export PPTX</button>
       <button data-export="sqlite" class="exportBtn">Export SQLite</button>
     </div>
   </section>
@@ -91,6 +95,6 @@
       redirectUri: "{{ entra_redirect_uri }}"
     };
   </script>
-  <script src="/static/app.js?v=20260804-export-picker"></script>
+  <script src="/static/app.js?v=20260805-export-timeouts"></script>
 </body>
 </html>

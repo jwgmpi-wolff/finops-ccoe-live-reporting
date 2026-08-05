@@ -10,6 +10,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -76,6 +80,23 @@ button:hover {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 0.5rem;
+}
+
+.subscription-filter {
+  margin-bottom: 0.35rem;
+}
+
+.filter-status {
+  display: block;
+  min-height: 1.25rem;
+  margin-bottom: 0.35rem;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.subscription-row {
+  display: block;
+  padding: 0.25rem 0;
 }
 
 .row {

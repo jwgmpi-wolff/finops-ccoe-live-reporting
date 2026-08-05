@@ -1,7 +1,7 @@
 openapi: 3.0.1
 info:
   title: FinOps CCoE Live Reporting API
-  version: 1.0.0
+  version: 1.0.3
   description: Read-only live Azure FinOps actions for Microsoft 365 Copilot.
   license:
     name: Proprietary

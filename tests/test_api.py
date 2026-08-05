@@ -2,14 +2,27 @@ import asyncio
 import subprocess
 from fastapi.testclient import TestClient
 from datetime import UTC, datetime
+import json
+import app.main as main_module
+from pptx import Presentation
+from pptx.enum.text import MSO_AUTO_SIZE
+from pptx.util import Inches
 
 from app.main import LAST_REPORT, app
 from app.models import Recommendation, ReportDomain, ReportResult, SourceAudit
+from app.services.exporters import build_executive_brief, export_pptx
 from app.services.reporting import build_report
 from app.services.azure_live import AzureLiveClient
 
 
 client = TestClient(app)
+
+
+def test_health_reports_deployment_version():
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["version"] == "1.0.3"
 
 
 def test_cli_login_uses_hidden_browser_flow(monkeypatch):
@@ -111,6 +124,173 @@ def test_list_domains_has_16_domains():
 def test_export_without_report_returns_404():
     response = client.get("/api/export/csv")
     assert response.status_code == 404
+
+
+def test_repeated_export_reuses_cached_artifact(monkeypatch, tmp_path):
+    report = ReportResult(
+        domain=ReportDomain.optimization,
+        tenant_id="tenant-a",
+        subscription_scope=["sub-a"],
+        generated_at_utc=datetime.now(UTC),
+        execution_time_ms=10,
+        data_quality_score=100.0,
+        unresolved_fields_count=0,
+        live_data_confirmed=True,
+        source_audit=[],
+        rows=[],
+        recommendations=[],
+        warnings=[],
+    )
+    output = tmp_path / "cached.csv"
+    calls = 0
+
+    def fake_exporter(_report):
+        nonlocal calls
+        calls += 1
+        output.write_text("dataset\n", encoding="utf-8")
+        return output
+
+    LAST_REPORT.clear()
+    LAST_REPORT.update({"report": report, "exports": {}})
+    monkeypatch.setitem(main_module.EXPORT_MAP, "csv", fake_exporter)
+
+    first = client.get("/api/export/csv")
+    second = client.get("/api/export/csv")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls == 1
+
+
+def test_executive_brief_uses_transcript_themes_and_only_live_values():
+    report = ReportResult(
+        domain=ReportDomain.optimization,
+        tenant_id="tenant-a",
+        subscription_scope=["sub-a"],
+        generated_at_utc=datetime.now(UTC),
+        execution_time_ms=10,
+        data_quality_score=98.5,
+        unresolved_fields_count=1,
+        live_data_confirmed=True,
+        source_audit=[],
+        rows=[
+            {"recommendationType": "Orphaned disk", "savingsEstimate": 125000},
+            {"recommendationType": "Rightsize VM", "annualSavingsAmount": 75000},
+        ],
+        recommendations=[],
+        warnings=[],
+    )
+
+    brief = build_executive_brief(report)
+
+    assert brief["title"] == "FinOps FY27 Executive Action Report"
+    assert ("Live potential savings", "$200,000.00") in brief["metrics"]
+    assert ("Resources analyzed", "2") in brief["metrics"]
+    assert ("Recommendations", "0") in brief["metrics"]
+    assert [title for title, _ in brief["priorities"]] == [
+        "Activate savings now",
+        "Refresh governance",
+        "Productionize reporting",
+        "Align platform engineering",
+    ]
+    rendered_brief = json.dumps(brief)
+    assert "$1.2M" not in rendered_brief
+    assert "$1.5M" not in rendered_brief
+    assert "All values are calculated from this report run" in brief["evidence_note"]
+
+
+def test_pptx_tables_are_compact_wrapped_and_within_slide_bounds():
+    report = ReportResult(
+        domain=ReportDomain.optimization,
+        tenant_id="tenant-a",
+        subscription_scope=["sub-a"],
+        generated_at_utc=datetime.now(UTC),
+        execution_time_ms=10,
+        data_quality_score=98.5,
+        unresolved_fields_count=0,
+        live_data_confirmed=True,
+        source_audit=[],
+        rows=[{
+            "serviceScope": "All Compute Services",
+            "subscriptionId": "sub-a",
+            "resourceName": "Example virtual machine",
+            "serviceName": "Compute",
+            "resourceType": "Microsoft.Compute/virtualMachines",
+            "resourceGroup": "rg-example",
+            "region": "eastus",
+            "cost": 42,
+            "usageQuantity": 9,
+            "estimatedTokenUnits": 0,
+            "resourceId": "/subscriptions/sub-a/resourceGroups/rg-example/providers/Microsoft.Compute/virtualMachines/vm-example",
+            "owner": "FinOps Team",
+            "environment": "Production",
+            "businessUnit": "Operations",
+        }],
+        recommendations=[
+            Recommendation(
+                category="Commitment optimization",
+                impact_estimate="1 impacted resource",
+                confidence="Medium",
+                affected_scope="Selected subscriptions",
+                suggested_action="Review the recommendation and assign an accountable owner.",
+                evidence="Live query returned one result.",
+            )
+        ],
+        warnings=[],
+    )
+
+    presentation = Presentation(export_pptx(report))
+    tables = [shape for slide in presentation.slides for shape in slide.shapes if shape.has_table]
+    report_tables = [
+        shape.table
+        for slide in presentation.slides
+        if any(
+            shape.has_text_frame and shape.text.startswith("Report Results")
+            for shape in slide.shapes
+        )
+        for shape in slide.shapes
+        if shape.has_table
+    ]
+
+    assert presentation.slide_width > presentation.slide_height
+    assert tables
+    assert len(report_tables) > 1
+    assert all(
+        [table.cell(0, index).text for index in range(4)]
+        == ["Row", "serviceScope", "subscriptionId", "resourceName"]
+        for table in report_tables
+    )
+    report_headers = {
+        table.cell(0, index).text
+        for table in report_tables
+        for index in range(len(table.columns))
+    }
+    assert {"owner", "environment", "businessUnit"} <= report_headers
+    assert any(shape.height <= Inches(2) and len(shape.table.rows) == 2 for shape in tables)
+    assert all(
+        cell.text_frame.word_wrap
+        and cell.text_frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        for shape in tables
+        for row in shape.table.rows
+        for cell in row.cells
+    )
+    assert all(
+        shape.left >= 0
+        and shape.top >= 0
+        and shape.left + shape.width <= presentation.slide_width
+        and shape.top + shape.height <= presentation.slide_height
+        for slide in presentation.slides
+        for shape in slide.shapes
+    )
+    priority_bodies = [
+        shape.text_frame
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if shape.has_text_frame and shape.text.startswith("Activate savings now")
+    ]
+    assert priority_bodies
+    assert priority_bodies[0].word_wrap
+    assert priority_bodies[0].auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
 
 def test_export_with_report_returns_file():

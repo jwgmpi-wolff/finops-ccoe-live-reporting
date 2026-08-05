@@ -1,5 +1,5 @@
 #define AppName "FinOps CCoE Live Reporting"
-#define AppVersion "1.0.2"
+#define AppVersion "1.0.3"
 #define AppPublisher "FinOps CCoE"
 #define AppExeName "FinOpsCCoE.exe"
 

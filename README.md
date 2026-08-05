@@ -207,8 +207,8 @@ Generated application and installer files under `dist` are intentionally exclude
 When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -222,7 +222,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.0.2 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.0.3 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:

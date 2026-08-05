@@ -11,6 +11,8 @@ const regionSelect = document.getElementById("region");
 const tagKeySelect = document.getElementById("tagKey");
 const tagValueSelect = document.getElementById("tagValue");
 const severitySelect = document.getElementById("severity");
+const subscriptionFilter = document.getElementById("subscriptionFilter");
+const subscriptionFilterStatus = document.getElementById("subscriptionFilterStatus");
 const resultDialog = document.getElementById("resultDialog");
 const resultDialogLabel = document.getElementById("resultDialogLabel");
 const resultDialogTitle = document.getElementById("resultDialogTitle");
@@ -26,6 +28,13 @@ let scopeRefreshTimer = null;
 let scopeRefreshInFlight = false;
 let suppressScopeRefresh = 0;
 let scopeRefreshSeq = 0;
+let completedReportVisible = false;
+
+function setExportButtonsEnabled(enabled) {
+  for (const button of document.querySelectorAll(".exportBtn")) {
+    button.disabled = !enabled;
+  }
+}
 
 async function clearAuthContext(message = "Authentication context cleared", clearCliSession = true) {
   try {
@@ -48,6 +57,8 @@ async function clearAuthContext(message = "Authentication context cleared", clea
 
   tenantSelect.innerHTML = "";
   subscriptionList.innerHTML = "";
+  subscriptionFilter.value = "";
+  subscriptionFilterStatus.textContent = "";
   populateSelectOptions(resourceGroupSelect, []);
   populateSelectOptions(regionSelect, []);
   populateSelectOptions(tagKeySelect, []);
@@ -61,6 +72,7 @@ async function clearAuthContext(message = "Authentication context cleared", clea
   renderResults({ auth: "cleared", hint: message });
   updateRunButtonState(false);
   setControlsEnabled(false);
+  setExportButtonsEnabled(false);
 }
 
 function startExecution(message) {
@@ -84,6 +96,7 @@ function setControlsEnabled(enabled) {
   document.getElementById("loadSubsBtn").disabled = !enabled;
   tenantSelect.disabled = !enabled;
   document.getElementById("selectAllSubs").disabled = !enabled;
+  subscriptionFilter.disabled = !enabled;
   updateRunButtonState(enabled);
 }
 
@@ -97,12 +110,35 @@ function selectedSubscriptions() {
   return Array.from(document.querySelectorAll(".subCheck:checked")).map((n) => n.value);
 }
 
+function visibleSubscriptionChecks() {
+  return Array.from(document.querySelectorAll(".subscription-row:not([hidden]) .subCheck"));
+}
+
 function syncSelectAllState() {
-  const checks = Array.from(document.querySelectorAll(".subCheck"));
+  const checks = visibleSubscriptionChecks();
   const checked = checks.filter((c) => c.checked);
   const allBox = document.getElementById("selectAllSubs");
   allBox.checked = checks.length > 0 && checked.length === checks.length;
+  allBox.indeterminate = checked.length > 0 && checked.length < checks.length;
+  allBox.disabled = tenantSelect.disabled || checks.length === 0;
   updateRunButtonState();
+}
+
+function applySubscriptionFilter() {
+  const query = subscriptionFilter.value.trim().toLocaleLowerCase();
+  const rows = Array.from(subscriptionList.querySelectorAll(".subscription-row"));
+  let visibleCount = 0;
+  for (const row of rows) {
+    const matches = !query || row.dataset.searchText.includes(query);
+    row.hidden = !matches;
+    if (matches) {
+      visibleCount += 1;
+    }
+  }
+  subscriptionFilterStatus.textContent = rows.length
+    ? `${visibleCount} of ${rows.length} subscriptions shown`
+    : "";
+  syncSelectAllState();
 }
 
 function populateSelectOptions(selectEl, values) {
@@ -530,6 +566,9 @@ function buildArrayTable(title, rows) {
 }
 
 function renderResults(data) {
+  if (completedReportVisible) {
+    return;
+  }
   results.innerHTML = "";
 
   if (Array.isArray(data)) {
@@ -632,7 +671,8 @@ async function loadSubscriptionsData() {
   suppressScopeRefresh += 1;
   for (const sub of payload.items) {
     const row = document.createElement("label");
-    row.style.display = "block";
+    row.className = "subscription-row";
+    row.dataset.searchText = `${sub.displayName || ""} ${sub.subscriptionId || ""}`.toLocaleLowerCase();
     row.innerHTML = `<input type="checkbox" value="${sub.subscriptionId}" class="subCheck" /> ${sub.displayName} (${sub.subscriptionId})`;
     const checkbox = row.querySelector(".subCheck");
     checkbox.addEventListener("change", () => {
@@ -641,6 +681,7 @@ async function loadSubscriptionsData() {
     });
     subscriptionList.appendChild(row);
   }
+  applySubscriptionFilter();
 
   if (selectedSubscriptions().length === 0) {
     const first = document.querySelector(".subCheck");
@@ -938,7 +979,7 @@ document.getElementById("loadSubsBtn").addEventListener("click", async () => {
 });
 
 document.getElementById("selectAllSubs").addEventListener("change", (e) => {
-  const checks = document.querySelectorAll(".subCheck");
+  const checks = visibleSubscriptionChecks();
   suppressScopeRefresh += 1;
   for (const check of checks) {
     check.checked = e.target.checked;
@@ -948,6 +989,8 @@ document.getElementById("selectAllSubs").addEventListener("change", (e) => {
   updateRunButtonState();
   queueScopeRefresh(100);
 });
+
+subscriptionFilter.addEventListener("input", applySubscriptionFilter);
 
 tagKeySelect.addEventListener("change", refreshTagValueDropdown);
 
@@ -1004,6 +1047,9 @@ document.getElementById("runReportBtn").addEventListener("click", async () => {
     },
   };
 
+  completedReportVisible = false;
+  results.innerHTML = "";
+  setExportButtonsEnabled(false);
   startExecution("Running report...");
   const domain = domainSelect.value;
   const response = await fetch(`/api/reports/${domain}`, {
@@ -1018,6 +1064,8 @@ document.getElementById("runReportBtn").addEventListener("click", async () => {
     return;
   }
   renderResults(data);
+  completedReportVisible = true;
+  setExportButtonsEnabled(true);
   stopExecution("Report complete");
 });
 
@@ -1028,14 +1076,16 @@ const exportFileTypes = {
     extension: ".csv",
   },
   pdf: {
-    description: "PDF report",
+    description: "Executive PDF report",
     mimeType: "application/pdf",
     extension: ".pdf",
+    suggestedName: "finops-executive-report.pdf",
   },
   pptx: {
-    description: "PowerPoint report",
+    description: "Executive PowerPoint report",
     mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     extension: ".pptx",
+    suggestedName: "finops-executive-report.pptx",
   },
   sqlite: {
     description: "SQLite database",
@@ -1050,8 +1100,11 @@ async function chooseExportDestination(type) {
   }
 
   const fileType = exportFileTypes[type];
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const baseName = (fileType.suggestedName || `finops-report${fileType.extension}`)
+    .slice(0, -fileType.extension.length);
   return window.showSaveFilePicker({
-    suggestedName: `finops-report${fileType.extension}`,
+    suggestedName: `${baseName}-${timestamp}${fileType.extension}`,
     types: [{
       description: fileType.description,
       accept: { [fileType.mimeType]: [fileType.extension] },
@@ -1059,11 +1112,40 @@ async function chooseExportDestination(type) {
   });
 }
 
+function downloadExportBlob(blob, type) {
+  const fileType = exportFileTypes[type];
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const baseName = (fileType.suggestedName || `finops-report${fileType.extension}`)
+    .slice(0, -fileType.extension.length);
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = `${baseName}-${timestamp}${fileType.extension}`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), timeoutMs);
+    }),
+  ]);
+}
+
 for (const button of document.querySelectorAll(".exportBtn")) {
   button.addEventListener("click", async (e) => {
-    startExecution("Exporting results...");
     const type = e.target.getAttribute("data-export");
+    const isExecutiveReport = type === "pdf" || type === "pptx";
     try {
+      // Chromium requires the picker to run directly from the click, before any
+      // awaited network work consumes the transient user activation.
+      const fileHandle = await chooseExportDestination(type);
+      startExecution(isExecutiveReport ? "Creating executive report..." : "Exporting results...");
+
       const response = await fetch(`/api/export/${type}`, { cache: "no-store" });
       if (!response.ok) {
         const data = await response.json();
@@ -1077,34 +1159,43 @@ for (const button of document.querySelectorAll(".exportBtn")) {
         throw new Error("The export service returned an empty file.");
       }
 
-      const fileHandle = await chooseExportDestination(type);
+      const blob = new Blob([bytes], { type: exportFileTypes[type].mimeType });
       if (fileHandle) {
-        const writable = await fileHandle.createWritable();
+        let writable = null;
         try {
-          await writable.write({ type: "write", position: 0, data: bytes });
-          await writable.truncate(bytes.byteLength);
-          await writable.close();
-        } catch (error) {
-          try {
-            await writable.abort();
-          } catch {
-            // The stream may already be closed after a filesystem error.
+          writable = await withTimeout(
+            fileHandle.createWritable({ keepExistingData: false }),
+            10000,
+            "Timed out opening the selected file.",
+          );
+          await withTimeout(writable.write(blob), 30000, "Timed out writing the selected file.");
+          await withTimeout(writable.close(), 10000, "Timed out closing the selected file.");
+          writable = null;
+          const savedFile = await withTimeout(
+            fileHandle.getFile(),
+            10000,
+            "Timed out verifying the selected file.",
+          );
+          if (savedFile.size !== blob.size) {
+            throw new Error(`Saved file verification failed: expected ${blob.size} bytes, found ${savedFile.size}.`);
           }
-          throw error;
+          stopExecution(`Export complete (${bytes.byteLength.toLocaleString()} bytes)`);
+          return;
+        } catch {
+          if (writable) {
+            try {
+              await withTimeout(writable.abort(), 3000, "Timed out cancelling the selected file write.");
+            } catch {
+              // The browser may already have closed the failed stream.
+            }
+          }
+          downloadExportBlob(blob, type);
+          stopExecution(`Selected file was unavailable; downloaded a new copy (${bytes.byteLength.toLocaleString()} bytes)`);
+          return;
         }
-        stopExecution(`Export complete (${bytes.byteLength.toLocaleString()} bytes)`);
-        return;
       }
 
-      const blob = new Blob([bytes], { type: exportFileTypes[type].mimeType });
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = href;
-      a.download = `finops-report${exportFileTypes[type].extension}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(href);
+      downloadExportBlob(blob, type);
       stopExecution(`Export complete (${bytes.byteLength.toLocaleString()} bytes)`);
     } catch (error) {
       if (error.name === "AbortError") {
@@ -1143,3 +1234,4 @@ probeBackend();
 completePkceIfRedirected();
 showAuthConfigState();
 setControlsEnabled(false);
+setExportButtonsEnabled(false);
