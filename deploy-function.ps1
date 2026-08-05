@@ -75,7 +75,7 @@ if (-not $existingApp) {
 
 Invoke-External -FilePath "az" -Arguments @(
   "functionapp", "config", "appsettings", "set", "--name", $FunctionAppName,
-  "--resource-group", $ResourceGroup, "--settings", "FINOPS_APP_VERSION=1.0.3", "--output", "none"
+  "--resource-group", $ResourceGroup, "--settings", "FINOPS_APP_VERSION=1.0.4", "--output", "none"
 )
 
 Write-Host "[6/7] Publishing application code with a remote build..."

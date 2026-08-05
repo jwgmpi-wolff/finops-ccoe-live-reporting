@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-  "contentVersion": "1.0.3.0",
+  "contentVersion": "1.0.4.0",
   "parameters": {
     "appName": {
       "type": "string",
@@ -78,7 +78,7 @@
             },
             {
               "name": "FINOPS_APP_VERSION",
-              "value": "1.0.3"
+              "value": "1.0.4"
             }
           ]
         }

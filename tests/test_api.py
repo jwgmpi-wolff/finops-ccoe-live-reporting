@@ -10,7 +10,7 @@ from pptx.util import Inches
 
 from app.main import LAST_REPORT, app
 from app.models import Recommendation, ReportDomain, ReportResult, SourceAudit
-from app.services.exporters import build_executive_brief, export_pptx
+from app.services.exporters import build_executive_brief, export_pdf, export_pptx
 from app.services.reporting import build_report
 from app.services.azure_live import AzureLiveClient
 
@@ -22,7 +22,7 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.0.3"
+    assert response.json()["version"] == "1.0.4"
 
 
 def test_cli_login_uses_hidden_browser_flow(monkeypatch):
@@ -209,7 +209,15 @@ def test_pptx_tables_are_compact_wrapped_and_within_slide_bounds():
         data_quality_score=98.5,
         unresolved_fields_count=0,
         live_data_confirmed=True,
-        source_audit=[],
+        source_audit=[
+            SourceAudit(
+                source="Azure Resource Graph",
+                endpoint="https://management.azure.com/mock",
+                duration_ms=10,
+                row_count=1,
+                executed_at_utc=datetime.now(UTC),
+            )
+        ],
         rows=[{
             "serviceScope": "All Compute Services",
             "subscriptionId": "sub-a",
@@ -240,6 +248,12 @@ def test_pptx_tables_are_compact_wrapped_and_within_slide_bounds():
     )
 
     presentation = Presentation(export_pptx(report))
+    slide_text = [
+        shape.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if shape.has_text_frame
+    ]
     tables = [shape for slide in presentation.slides for shape in slide.shapes if shape.has_table]
     report_tables = [
         shape.table
@@ -253,6 +267,12 @@ def test_pptx_tables_are_compact_wrapped_and_within_slide_bounds():
     ]
 
     assert presentation.slide_width > presentation.slide_height
+    assert "Report Contents" in slide_text
+    assert "Executive Overview" in slide_text
+    assert "Recommendations" in slide_text
+    assert "Report Results" in slide_text
+    assert "Data Provenance" in slide_text
+    assert any("1. Executive Overview" in text and "Slide 3" in text for text in slide_text)
     assert tables
     assert len(report_tables) > 1
     assert all(
@@ -291,6 +311,39 @@ def test_pptx_tables_are_compact_wrapped_and_within_slide_bounds():
     assert priority_bodies
     assert priority_bodies[0].word_wrap
     assert priority_bodies[0].auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
+
+def test_pdf_handles_unicode_and_contains_topic_outline():
+    report = ReportResult(
+        domain=ReportDomain.optimization,
+        tenant_id="tenant-a",
+        subscription_scope=["sub-a"],
+        generated_at_utc=datetime.now(UTC),
+        execution_time_ms=10,
+        data_quality_score=98.5,
+        unresolved_fields_count=0,
+        live_data_confirmed=True,
+        source_audit=[],
+        rows=[{"resourceName": "Production VM – East", "cost": 42}],
+        recommendations=[
+            Recommendation(
+                category="Cost optimization",
+                impact_estimate="1 resource",
+                confidence="High",
+                affected_scope="Selected subscriptions",
+                suggested_action="Review ‘idle’ usage and assign an owner.",
+                evidence="Current-run evidence…",
+            )
+        ],
+        warnings=["Partial access — one scope was unavailable."],
+    )
+
+    output = export_pdf(report)
+    content = output.read_bytes()
+
+    assert content.startswith(b"%PDF")
+    assert len(content) > 1_000
+    assert b"/Outlines" in content
 
 
 def test_export_with_report_returns_file():

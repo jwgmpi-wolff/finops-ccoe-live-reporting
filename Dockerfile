@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-ARG APP_VERSION=1.0.3
+ARG APP_VERSION=1.0.4
 LABEL org.opencontainers.image.title="FinOps CCoE Live Reporting" \
             org.opencontainers.image.version=$APP_VERSION \
             org.opencontainers.image.created="2026-08-05"

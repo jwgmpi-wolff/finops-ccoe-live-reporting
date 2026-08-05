@@ -24,7 +24,21 @@ else:
 
 
 def _pdf_safe_text(text: object, max_chunk: int = 40) -> str:
-    raw = str(text)
+    raw = str(text).translate(
+        str.maketrans(
+            {
+                "\u2013": "-",
+                "\u2014": "-",
+                "\u2018": "'",
+                "\u2019": "'",
+                "\u201c": '"',
+                "\u201d": '"',
+                "\u2022": "-",
+                "\u2026": "...",
+                "\u00a0": " ",
+            }
+        )
+    ).encode("latin-1", "replace").decode("latin-1")
     # Insert soft breaks into long non-whitespace runs (resource IDs, URLs, GUID chains)
     # so FPDF can always render within cell width.
     return re.sub(
@@ -39,6 +53,18 @@ def _pdf_safe_text(text: object, max_chunk: int = 40) -> str:
 def _pdf_table_text(value: object, max_chunk: int = 36) -> str:
     cleaned = re.sub(r"\s+", " ", str(value)).strip()
     return _pdf_safe_text(cleaned, max_chunk=max_chunk)
+
+
+def _pptx_safe_text(value: object, max_chunk: int = 28) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value)).strip()
+    return re.sub(
+        rf"\S{{{max_chunk + 1},}}",
+        lambda match: " ".join(
+            match.group(0)[index:index + max_chunk]
+            for index in range(0, len(match.group(0)), max_chunk)
+        ),
+        cleaned,
+    )
 
 
 def ensure_export_dir() -> None:
@@ -317,6 +343,7 @@ def export_pdf(report: ReportResult) -> Path:
     brief = build_executive_brief(report)
 
     pdf = FPDF(orientation="L")
+    pdf.set_margins(10, 10, 10)
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
 
@@ -334,8 +361,10 @@ def export_pdf(report: ReportResult) -> Path:
         if pdf.get_y() + required_height > pdf.h - 15:
             pdf.add_page()
 
-    def section_title(title: str) -> None:
+    def section_title(title: str, *, register: bool = True) -> None:
         ensure_space(12)
+        if register:
+            pdf.start_section(_pdf_safe_text(title), level=0)
         pdf.set_fill_color(*palette["teal"])
         pdf.set_text_color(*palette["white"])
         pdf.set_font("Helvetica", "B", 11)
@@ -343,8 +372,36 @@ def export_pdf(report: ReportResult) -> Path:
         pdf.cell(page_width, 8, _pdf_safe_text(title), new_x="LMARGIN", new_y="NEXT", fill=True)
         pdf.set_text_color(*palette["slate"])
 
-    def draw_table(title: str, columns: list[tuple[str, float]], rows: list[dict[str, object]]) -> None:
+    def topic_header(title: str, context: str) -> None:
+        ensure_space(28)
+        if pdf.get_y() > pdf.t_margin + 1:
+            pdf.ln(10)
         section_title(title)
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(page_width, 4.5, _pdf_table_text(context, 48))
+        pdf.ln(1)
+
+    def render_toc(toc_pdf: FPDF, outline: list[object]) -> None:
+        toc_pdf.set_fill_color(*palette["navy"])
+        toc_pdf.rect(0, 0, toc_pdf.w, 24, style="F")
+        toc_pdf.set_text_color(*palette["white"])
+        toc_pdf.set_font("Helvetica", "B", 18)
+        toc_pdf.set_xy(toc_pdf.l_margin, 8)
+        toc_pdf.cell(page_width, 8, "Table of Contents")
+        toc_pdf.set_text_color(*palette["slate"])
+        toc_pdf.set_y(32)
+        toc_pdf.set_font("Helvetica", "", 10)
+        for item in outline:
+            if item.level != 0:
+                continue
+            link = toc_pdf.add_link(page=item.page_number)
+            toc_pdf.set_x(toc_pdf.l_margin)
+            toc_pdf.cell(page_width - 18, 7, _pdf_safe_text(item.name), link=link)
+            toc_pdf.cell(18, 7, str(item.page_number), align="R", link=link, new_x="LMARGIN", new_y="NEXT")
+
+    def draw_table(title: str, columns: list[tuple[str, float]], rows: list[dict[str, object]]) -> None:
+        section_title(title, register=False)
         ensure_space(8)
         pdf.set_font("Helvetica", "B", 8)
         pdf.set_fill_color(*palette["sky"])
@@ -371,10 +428,26 @@ def export_pdf(report: ReportResult) -> Path:
     pdf.cell(page_width, 6, _pdf_safe_text(brief["subtitle"]), new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_text_color(*palette["slate"])
-    pdf.ln(6)
+    pdf.set_y(39)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.multi_cell(page_width, 6, _pdf_table_text(brief["headline"], 48))
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.multi_cell(
+        page_width,
+        5,
+        _pdf_table_text(
+            f"Tenant: {report.tenant_id} | Subscriptions: {len(report.subscription_scope)} | "
+            f"Generated: {report.generated_at_utc.strftime('%Y-%m-%d %H:%M UTC')}",
+            48,
+        ),
+    )
+
+    pdf.add_page()
+    pdf.insert_toc_placeholder(render_toc, pages=1)
 
     # Executive summary
-    section_title("Executive Summary")
+    topic_header("Executive Summary", "Current-run financial, coverage, and data-quality indicators for executive review.")
     pdf.set_font("Helvetica", "", 10)
     pdf.multi_cell(page_width, 6, _pdf_table_text(brief["headline"], 40))
     for label, value in brief["metrics"]:
@@ -382,21 +455,21 @@ def export_pdf(report: ReportResult) -> Path:
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(page_width, 6, _pdf_table_text(f"{label}: {value}", 40))
 
-    section_title("Executive Priorities")
+    topic_header("Executive Priorities", "Priority outcomes framed by the report context and supported only by current-run evidence.")
     pdf.set_font("Helvetica", "", 9)
     for title, detail in brief["priorities"]:
         ensure_space(8)
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(page_width, 5.5, _pdf_table_text(f"{title}: {detail}", 40))
 
-    section_title("90-Day Action Plan")
+    topic_header("90-Day Action Plan", "Sequenced actions for validating, assigning, and realizing the opportunities in this report.")
     pdf.set_font("Helvetica", "", 9)
     for period, action in brief["actions"]:
         ensure_space(8)
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(page_width, 5.5, _pdf_table_text(f"{period}: {action}", 40))
 
-    section_title("Executive Decisions")
+    topic_header("Executive Decisions", "Decisions and ownership required to move report findings into accountable execution.")
     pdf.set_font("Helvetica", "", 9)
     for decision in brief["executive_decisions"]:
         ensure_space(7)
@@ -443,6 +516,7 @@ def export_pdf(report: ReportResult) -> Path:
         for rec in report.recommendations
     ]
     if recommendation_rows:
+        topic_header("Recommendations", "Prioritized findings, impact, confidence, and accountable remediation actions.")
         draw_table(
             "Top Recommendations",
             [("Category", 38), ("Impact", 36), ("Confidence", 24), ("Action", page_width - 98)],
@@ -451,6 +525,7 @@ def export_pdf(report: ReportResult) -> Path:
 
     # AI summary table
     if report.ai_token_summary:
+        topic_header("AI Usage", "Aggregated Azure AI consumption, token estimates, and current-run cost evidence.")
         ai_summary_rows = [
             {
                 "Scope": row.get("serviceScope", ""),
@@ -470,17 +545,47 @@ def export_pdf(report: ReportResult) -> Path:
 
     # Report results table
     if report.rows:
-        section_title("Results Highlights")
+        topic_header("Report Results", "Representative live results for the selected report topic and subscription scope.")
+        section_title("Results Highlights", register=False)
         pdf.set_font("Helvetica", "", 8)
         highlight_lines = [row_summary(row) for row in report.rows[:8]]
         for line in highlight_lines:
             ensure_space(6)
             pdf.set_x(pdf.l_margin)
-            pdf.multi_cell(page_width, 5.5, f"- {line}")
+            pdf.multi_cell(page_width, 5.5, _pdf_table_text(f"- {line}", 40))
+
+    if report.source_audit or report.enrichment_audit:
+        topic_header("Data Provenance", "Source execution and enrichment evidence supporting this report.")
+        if report.source_audit:
+            source_rows = [
+                {
+                    "Source": item.source,
+                    "Rows": item.row_count,
+                    "Duration": f"{item.duration_ms} ms",
+                    "Executed": item.executed_at_utc.strftime("%Y-%m-%d %H:%M UTC"),
+                }
+                for item in report.source_audit
+            ]
+            draw_table(
+                "Source Audit",
+                [("Source", 70), ("Rows", 24), ("Duration", 32), ("Executed", page_width - 126)],
+                source_rows[:10],
+            )
+        if report.enrichment_audit:
+            pdf.set_font("Helvetica", "", 8)
+            ensure_space(7)
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(
+                page_width,
+                5,
+                f"Enrichment audit records: {len(report.enrichment_audit):,} | "
+                f"Unresolved key fields: {report.unresolved_fields_count:,}",
+            )
 
     # Footer notes
     if report.warnings:
-        section_title("Warnings")
+        topic_header("Operational Notes", "Warnings, partial-access conditions, and limitations affecting interpretation.")
+        section_title("Warnings", register=False)
         pdf.set_font("Helvetica", "", 8)
         for warning in report.warnings[:6]:
             ensure_space(6)
@@ -507,6 +612,7 @@ def export_pptx(report: ReportResult) -> Path:
         "light": RGBColor(226, 232, 240),
         "white": RGBColor(255, 255, 255),
     }
+    section_slides: dict[str, int] = {}
 
     def set_text(
         text_frame,
@@ -591,6 +697,29 @@ def export_pptx(report: ReportResult) -> Path:
                 run.font.size = Pt(16 if idx == 0 else 13)
                 run.font.color.rgb = palette["slate"]
 
+    def add_contents_slide():
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        header = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.0), Inches(0.5))
+        set_text(header.text_frame, "Report Contents", size=22, bold=True, color=palette["navy"])
+        body = slide.shapes.add_textbox(Inches(0.7), Inches(1.0), Inches(12.0), Inches(5.6))
+        text_frame = body.text_frame
+        text_frame.clear()
+        text_frame.word_wrap = True
+        text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        return text_frame
+
+    def render_contents(text_frame, topics: list[tuple[str, str]]) -> None:
+        for index, (title, context) in enumerate(topics):
+            paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
+            slide_number = section_slides.get(title)
+            page_reference = f"Slide {slide_number}" if slide_number else "Section"
+            paragraph.text = f"{index + 1}. {title} - {context}  |  {page_reference}"
+            paragraph.space_after = Pt(5)
+            paragraph.line_spacing = 1.0
+            if paragraph.runs:
+                paragraph.runs[0].font.size = Pt(13)
+                paragraph.runs[0].font.color.rgb = palette["slate"]
+
     def add_bullet_slide(title: str, bullets: list[str]) -> None:
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
         header = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.0), Inches(0.5))
@@ -605,7 +734,8 @@ def export_pptx(report: ReportResult) -> Path:
             paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
             paragraph.text = line
             paragraph.level = 0
-            paragraph.space_after = Pt(12)
+            paragraph.space_after = Pt(6)
+            paragraph.line_spacing = 1.0
             if paragraph.runs:
                 run = paragraph.runs[0]
                 run.font.size = Pt(14)
@@ -613,6 +743,7 @@ def export_pptx(report: ReportResult) -> Path:
 
     def add_section_divider(title: str, subtitle: str) -> None:
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        section_slides[title] = len(presentation.slides)
         banner = slide.shapes.add_shape(1, Inches(0), Inches(0), presentation.slide_width, presentation.slide_height)
         banner.fill.solid()
         banner.fill.fore_color.rgb = palette["navy"]
@@ -750,7 +881,7 @@ def export_pptx(report: ReportResult) -> Path:
                 for row_idx, row in enumerate(chunk, start=1):
                     row_fill = palette["white"] if row_idx % 2 else palette["pale"]
                     for col_idx, col in enumerate(group_columns):
-                        value = start + row_idx if col == "__rowNumber" else _pdf_safe_text(row.get(col, ""), 28)
+                        value = start + row_idx if col == "__rowNumber" else _pptx_safe_text(row.get(col, ""), 28)
                         cell = table.cell(row_idx, col_idx)
                         cell.fill.solid()
                         cell.fill.fore_color.rgb = row_fill
@@ -767,7 +898,22 @@ def export_pptx(report: ReportResult) -> Path:
                             run.font.size = Pt(8 if len(group_columns) >= 4 else 9)
                             run.font.color.rgb = palette["slate"]
 
+    report_topics = [
+        ("Executive Overview", "summary, priorities, action plan, and decisions"),
+        ("Report Results", "live records for the selected report topic"),
+    ]
+    if report.recommendations:
+        report_topics.insert(1, ("Recommendations", "impact, confidence, scope, actions, and evidence"))
+    if report.ai_token_summary or report.ai_token_tracking:
+        report_topics.insert(-1, ("AI Usage", "token and cost summaries"))
+    if report.source_audit or report.enrichment_audit:
+        report_topics.append(("Data Provenance", "source and enrichment audit context"))
+    if report.warnings:
+        report_topics.append(("Operational Notes", "warnings and partial-access conditions"))
+
     add_title_slide()
+    contents_frame = add_contents_slide()
+    add_section_divider("Executive Overview", "Current-run summary, priorities, action plan, and decisions.")
     add_summary_slide()
     add_bullet_slide(
         "Executive Priorities",
@@ -783,25 +929,26 @@ def export_pptx(report: ReportResult) -> Path:
     )
 
     if report.recommendations:
-        add_section_divider("Detailed Findings", "Recommendations and report outputs follow on the next slides.")
+        add_section_divider("Recommendations", "Impact, confidence, scope, actions, and supporting evidence.")
+        add_table_slide(
+            "Recommendations",
+            [
+                {
+                    "category": rec.category,
+                    "impact": rec.impact_estimate,
+                    "confidence": rec.confidence,
+                    "scope": rec.affected_scope,
+                    "action": rec.suggested_action,
+                    "evidence": rec.evidence,
+                }
+                for rec in report.recommendations
+            ],
+            ["category", "impact", "confidence", "scope", "action", "evidence"],
+            rows_per_slide=10,
+        )
 
-    add_table_slide(
-        "Recommendations",
-        [
-            {
-                "category": rec.category,
-                "impact": rec.impact_estimate,
-                "confidence": rec.confidence,
-                "scope": rec.affected_scope,
-                "action": rec.suggested_action,
-                "evidence": rec.evidence,
-            }
-            for rec in report.recommendations
-        ],
-        ["category", "impact", "confidence", "scope", "action", "evidence"],
-        rows_per_slide=10,
-    )
-
+    if report.ai_token_summary or report.ai_token_tracking:
+        add_section_divider("AI Usage", "Token and cost summaries for Azure AI services when available.")
     add_table_slide(
         "AI Token Summary",
         report.ai_token_summary,
@@ -831,6 +978,7 @@ def export_pptx(report: ReportResult) -> Path:
         ],
     )
 
+    add_section_divider("Report Results", "Live records for the selected report topic and subscription scope.")
     add_table_slide(
         "Report Results",
         report.rows,
@@ -848,6 +996,8 @@ def export_pptx(report: ReportResult) -> Path:
         ],
     )
 
+    if report.source_audit or report.enrichment_audit:
+        add_section_divider("Data Provenance", "Source calls and enrichment outcomes supporting this report.")
     add_table_slide(
         "Source Audit",
         [
@@ -886,6 +1036,7 @@ def export_pptx(report: ReportResult) -> Path:
             rows_per_slide=15,
         )
 
+    render_contents(contents_frame, report_topics)
     add_footers()
 
     presentation.save(str(output))

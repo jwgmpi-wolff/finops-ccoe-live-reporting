@@ -154,6 +154,8 @@ if ($actual -ne $expected) { throw "Installer checksum does not match." }
 
 The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports still require the signed-in user to have Azure CLI or browser OAuth authentication and Azure RBAC access.
 
+Version 1.0.4 adds linked PDF contents and bookmarks, numbered PowerPoint contents and topic dividers, Unicode-safe PDF rendering, and clearer two-line spacing between major report sections. Exported values remain calculated only from the current live report run.
+
 ## Install on Windows
 
 The Windows installer is the simplest desktop deployment. It installs per user, requires no administrator rights, adds Start menu and optional desktop shortcuts, and does not require Python on the destination computer.
@@ -207,8 +209,8 @@ Generated application and installer files under `dist` are intentionally exclude
 When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
-git tag v1.0.3
-git push origin v1.0.3
+git tag v1.0.4
+git push origin v1.0.4
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -222,7 +224,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.0.3 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.0.4 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:
