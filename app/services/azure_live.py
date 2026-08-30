@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import UTC, datetime
 import re
@@ -135,6 +136,141 @@ class AzureLiveClient:
         elapsed = int((time.perf_counter() - start) * 1000)
         return rows, SourceAudit(
             source="Azure Cost Management",
+            endpoint=url,
+            duration_ms=elapsed,
+            row_count=len(rows),
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    async def query_cost_details(
+        self,
+        subscription_id: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> tuple[list[dict[str, Any]], SourceAudit]:
+        url = (
+            f"{ARM_API}/subscriptions/{subscription_id}/providers/Microsoft.CostManagement/query"
+            "?api-version=2023-03-01"
+        )
+        body: dict[str, Any] = {
+            "type": "ActualCost",
+            "timeframe": "MonthToDate",
+            "dataset": {
+                "granularity": "Daily",
+                "aggregation": {
+                    "cost": {"name": "PreTaxCost", "function": "Sum"},
+                    "usageQuantity": {"name": "UsageQuantity", "function": "Sum"},
+                },
+                "grouping": [
+                    {"type": "Dimension", "name": "ResourceId"},
+                    {"type": "Dimension", "name": "ResourceGroup"},
+                    {"type": "Dimension", "name": "ServiceName"},
+                    {"type": "Dimension", "name": "MeterCategory"},
+                    {"type": "Dimension", "name": "ChargeType"},
+                ],
+            },
+        }
+        if start_date and end_date:
+            body["timeframe"] = "Custom"
+            body["timePeriod"] = {
+                "from": f"{start_date}T00:00:00Z",
+                "to": f"{end_date}T23:59:59Z",
+            }
+
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.post(url, headers=self._headers, json=body)
+            response.raise_for_status()
+            properties = response.json().get("properties", {})
+
+        column_names = [
+            str(column.get("name") or f"column{index}")
+            for index, column in enumerate(properties.get("columns", []))
+        ]
+        rows = [
+            dict(zip(column_names, row, strict=False))
+            for row in properties.get("rows", [])
+            if isinstance(row, list)
+        ]
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return rows, SourceAudit(
+            source="Azure Cost Management",
+            endpoint=url,
+            duration_ms=elapsed,
+            row_count=len(rows),
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    async def list_reservations(self) -> tuple[list[dict[str, Any]], SourceAudit]:
+        url = f"{ARM_API}/providers/Microsoft.Capacity/reservationOrders?api-version=2022-11-01"
+        start = time.perf_counter()
+        reservations: list[dict[str, Any]] = []
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.get(url, headers=self._headers)
+            response.raise_for_status()
+            orders = response.json().get("value", [])
+            for order in orders:
+                order_id = str(order.get("id", "")).rstrip("/")
+                if not order_id:
+                    continue
+                reservation_url = f"{ARM_API}{order_id}/reservations?api-version=2022-11-01"
+                reservation_response = await client.get(reservation_url, headers=self._headers)
+                reservation_response.raise_for_status()
+                for reservation in reservation_response.json().get("value", []):
+                    properties = reservation.get("properties", {})
+                    reservations.append(
+                        {
+                            "reservationOrderId": order_id.rsplit("/", 1)[-1],
+                            "reservationId": reservation.get("name", ""),
+                            "displayName": properties.get("displayName", ""),
+                            "provisioningState": properties.get("provisioningState", ""),
+                            "reservedResourceType": properties.get("reservedResourceType", ""),
+                            "quantity": properties.get("quantity"),
+                            "term": properties.get("term", ""),
+                            "purchaseDate": properties.get("purchaseDate", ""),
+                            "expiryDate": properties.get("expiryDate", ""),
+                            "appliedScopeType": properties.get("appliedScopeType", ""),
+                            "appliedScopes": properties.get("appliedScopes", []),
+                        }
+                    )
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return reservations, SourceAudit(
+            source="Azure Reservations",
+            endpoint=url,
+            duration_ms=elapsed,
+            row_count=len(reservations),
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    async def list_compute_usages(
+        self,
+        subscription_id: str,
+        location: str,
+    ) -> tuple[list[dict[str, Any]], SourceAudit]:
+        url = (
+            f"{ARM_API}/subscriptions/{subscription_id}/providers/Microsoft.Compute/"
+            f"locations/{location}/usages?api-version=2024-07-01"
+        )
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=90) as client:
+            response = await client.get(url, headers=self._headers)
+            response.raise_for_status()
+            usages = response.json().get("value", [])
+        rows = [
+            {
+                "subscriptionId": subscription_id,
+                "region": location,
+                "quotaName": item.get("name", {}).get("localizedValue")
+                or item.get("name", {}).get("value", ""),
+                "currentValue": item.get("currentValue"),
+                "limit": item.get("limit"),
+                "unit": item.get("unit", ""),
+            }
+            for item in usages
+        ]
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return rows, SourceAudit(
+            source="Azure Compute Usage",
             endpoint=url,
             duration_ms=elapsed,
             row_count=len(rows),

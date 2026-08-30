@@ -90,12 +90,31 @@ Microsoft 365 Copilot hosts the language model. The API plugin forwards a delega
 
 1. Live-only reporting pipeline (no mock data).
 2. Tenant and subscription discovery after sign-in.
-3. 16 FinOps reporting domains, including AI token tracking.
+3. 24 FinOps reporting domains, including AI token tracking and refreshable EA-style cost, reservation, quota, storage, resource-group, and subscription summaries.
 4. Data enrichment for opaque IDs and quality scoring.
 5. Export support for CSV, PDF, PPTX, and SQLite.
 6. Strict live validation mode for trust gating.
 7. Clear authentication context switching and CLI reauth support.
 8. Publishable Microsoft 365 Copilot declarative agent package with delegated Azure RBAC.
+
+## Refreshable EA-Style Reports
+
+The report catalog includes live equivalents of the layouts in `SAMPLE PowerBi on Azure EA accounts.pptx`. The deck is a visual and reporting-taxonomy reference only; its values are never loaded by the application.
+
+| Report | Authoritative live source |
+| --- | --- |
+| Tenant Spend Summary | Azure Cost Management actual cost, aggregated by usage date across selected subscriptions |
+| Cost Summary | Azure Cost Management actual cost and usage detail |
+| Reservation Savings | Azure Advisor reservation and commitment recommendations |
+| Quota Summary | Azure Resource Graph region discovery and Azure Compute regional usage limits |
+| Expiring Reservations | Azure Capacity reservation orders and reservations |
+| Storage Costs | Azure Cost Management rows identified as storage services or meter categories |
+| Resource Group Costs | Azure Cost Management actual cost aggregated by resource group and usage date |
+| Subscription Cost Summary | Azure Cost Management actual cost aggregated by subscription, service, meter category, and usage date |
+
+Select a tenant, one or more subscriptions, an optional date range, and a report domain, then choose **Run Live Report**. Running the report again refreshes it from Microsoft APIs using the current bearer token. PDF, PowerPoint, CSV, and SQLite exports are generated from that completed run and include collection time, scope, warnings, and source audit records.
+
+Results reflect the signed-in user's Azure RBAC. Cost reports commonly require Cost Management Reader; reservation inventory requires permission to read `Microsoft.Capacity/reservationOrders` and reservations; quota reports require Resource Graph read access and `Microsoft.Compute/locations/usages/read`. A denied source is reported as a warning and never replaced with sample or fabricated rows.
 
 ## Microsoft 365 Copilot Agent
 
@@ -154,7 +173,7 @@ if ($actual -ne $expected) { throw "Installer checksum does not match." }
 
 The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports still require the signed-in user to have Azure CLI or browser OAuth authentication and Azure RBAC access.
 
-Version 1.0.4 adds linked PDF contents and bookmarks, numbered PowerPoint contents and topic dividers, Unicode-safe PDF rendering, and clearer two-line spacing between major report sections. Exported values remain calculated only from the current live report run.
+Version 1.1.0 adds the refreshable EA-style live report catalog, including tenant spend, detailed cost, reservation savings and expiry, compute quota, storage cost, resource-group cost, and subscription cost summaries. Exported values remain calculated only from the current live report run.
 
 ## Install on Windows
 
@@ -209,8 +228,8 @@ Generated application and installer files under `dist` are intentionally exclude
 When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
-git tag v1.0.4
-git push origin v1.0.4
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -224,7 +243,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.0.4 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.1.0 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:

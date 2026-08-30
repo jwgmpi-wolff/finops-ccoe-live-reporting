@@ -88,53 +88,52 @@ def build_executive_brief(report: ReportResult) -> dict[str, object]:
         _safe_number(row.get("savingsEstimate") or row.get("annualSavingsAmount"))
         for row in report.rows
     )
-    orphaned_resources = sum(
-        1
-        for row in report.rows
-        if "orphan" in " ".join(
-            str(row.get(field, ""))
-            for field in ("recommendationType", "category", "resourceName", "reason")
-        ).lower()
-    )
+    priorities = [
+        (
+            recommendation.category,
+            f"{recommendation.suggested_action} Evidence: {recommendation.evidence}",
+        )
+        for recommendation in report.recommendations[:4]
+    ]
+    if not priorities:
+        priorities = [
+            (
+                "Validate report coverage",
+                report.warnings[0] if report.warnings else "The live query returned no recommendation records.",
+            )
+        ]
 
-    savings_evidence = (
-        f"Live report identifies {_format_money(total_savings)} in potential savings."
-        if total_savings > 0
-        else "Live savings evidence is not present in this report; validate the opportunity with Azure Advisor data."
-    )
-    orphan_evidence = (
-        f"{orphaned_resources} orphan-related result(s) are visible in the current report."
-        if orphaned_resources > 0
-        else "Run or refresh orphan-resource detection to establish the cleanup baseline."
-    )
+    actions = [
+        (f"Priority {index}", recommendation.suggested_action)
+        for index, recommendation in enumerate(report.recommendations[:6], start=1)
+    ]
+    if not actions:
+        actions = [("Priority 1", "Validate permissions, selected scope, and report filters before acting.")]
+
+    decisions = [
+        f"Assign an accountable owner for {recommendation.category.lower()} in {recommendation.affected_scope}."
+        for recommendation in report.recommendations[:6]
+    ]
+    if not decisions:
+        decisions = ["Confirm the selected tenant and subscription coverage before making a FinOps decision."]
 
     return {
-        "title": "FinOps FY27 Executive Action Report",
+        "title": "Azure FinOps Live Executive Report",
         "subtitle": report.domain.value.replace("_", " ").title(),
-        "headline": "Begin cost-savings execution immediately while strengthening governance and reporting.",
+        "headline": (
+            f"Review {len(report.rows):,} current-run result(s) from {len(report.source_audit):,} live Azure source call(s)."
+        ),
         "metrics": [
             ("Live potential savings", _format_money(total_savings) if total_savings > 0 else "Not available in this report"),
             ("Cost represented", _format_money(total_cost) if total_cost > 0 else "Not available in this report"),
             ("Resources analyzed", f"{len(report.rows):,}"),
             ("Recommendations", f"{len(report.recommendations):,}"),
             ("Data quality", f"{report.data_quality_score:.1f}%"),
+            ("Partial-access warnings", f"{len(report.warnings):,}"),
         ],
-        "priorities": [
-            ("Activate savings now", f"Prioritize Azure Advisor recommendations and orphan-resource cleanup. {savings_evidence} {orphan_evidence}"),
-            ("Refresh governance", "Fine-tune FinOps governance, define FY27 KPIs and metrics, and update the RACI for current stakeholders."),
-            ("Productionize reporting", "Complete API pagination, validate all returned pages, and move the makeshift Advisor dashboard to a governed operational view."),
-            ("Align platform engineering", "Add cost and savings estimates to Terraform re-architecture and disaster-recovery work so benefits are visible with delivery progress."),
-        ],
-        "actions": [
-            ("0-30 days", "Validate Advisor savings, inventory orphaned resources, assign owners, and approve quick-win remediation."),
-            ("31-60 days", "Publish refreshed RACI and KPI definitions; complete dashboard pagination and data-quality controls."),
-            ("61-90 days", "Report realized savings and incorporate cost estimates and preventive controls into platform-engineering automation."),
-        ],
-        "executive_decisions": [
-            "Confirm accountable owners for savings realization and governance updates.",
-            "Approve the Advisor and orphan-resource remediation sequence.",
-            "Set the reporting cadence for validated savings, KPI progress, and platform-engineering benefits.",
-        ],
+        "priorities": priorities,
+        "actions": actions,
+        "executive_decisions": decisions,
         "evidence_note": (
             f"Based on {len(report.rows)} live result(s), {len(report.recommendations)} recommendation(s), "
             f"and {len(report.source_audit)} source call(s) collected at "

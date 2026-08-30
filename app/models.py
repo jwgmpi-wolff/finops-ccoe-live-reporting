@@ -6,6 +6,14 @@ from pydantic import BaseModel, Field
 
 
 class ReportDomain(str, Enum):
+    tenant_spend_summary = "tenant_spend_summary"
+    cost_summary = "cost_summary"
+    reservation_savings = "reservation_savings"
+    quota_summary = "quota_summary"
+    expiring_reservations = "expiring_reservations"
+    storage_costs = "storage_costs"
+    resource_group_costs = "resource_group_costs"
+    subscription_cost_summary = "subscription_cost_summary"
     spend_visibility = "spend_visibility"
     budget_forecasting = "budget_forecasting"
     optimization = "optimization"

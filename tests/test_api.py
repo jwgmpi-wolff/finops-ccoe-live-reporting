@@ -22,7 +22,7 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.0.4"
+    assert response.json()["version"] == "1.1.0"
 
 
 def test_cli_login_uses_hidden_browser_flow(monkeypatch):
@@ -114,11 +114,21 @@ def test_agent_report_returns_bounded_evidence(monkeypatch):
     LAST_REPORT.clear()
 
 
-def test_list_domains_has_16_domains():
+def test_list_domains_includes_sample_inspired_live_reports():
     response = client.get("/api/domains")
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 16
+    assert len(payload) == 24
+    assert {
+        "tenant_spend_summary",
+        "cost_summary",
+        "reservation_savings",
+        "quota_summary",
+        "expiring_reservations",
+        "storage_costs",
+        "resource_group_costs",
+        "subscription_cost_summary",
+    } <= {item["key"] for item in payload}
 
 
 def test_export_without_report_returns_404():
@@ -162,7 +172,7 @@ def test_repeated_export_reuses_cached_artifact(monkeypatch, tmp_path):
     assert calls == 1
 
 
-def test_executive_brief_uses_transcript_themes_and_only_live_values():
+def test_executive_brief_uses_only_current_live_report_values():
     report = ReportResult(
         domain=ReportDomain.optimization,
         tenant_id="tenant-a",
@@ -177,25 +187,36 @@ def test_executive_brief_uses_transcript_themes_and_only_live_values():
             {"recommendationType": "Orphaned disk", "savingsEstimate": 125000},
             {"recommendationType": "Rightsize VM", "annualSavingsAmount": 75000},
         ],
-        recommendations=[],
+        recommendations=[
+            Recommendation(
+                category="Commitment optimization",
+                impact_estimate="$200,000",
+                confidence="High",
+                affected_scope="Selected subscriptions",
+                suggested_action="Validate the reservation purchase recommendation.",
+                evidence="Two live Advisor records.",
+            )
+        ],
         warnings=[],
     )
 
     brief = build_executive_brief(report)
 
-    assert brief["title"] == "FinOps FY27 Executive Action Report"
+    assert brief["title"] == "Azure FinOps Live Executive Report"
     assert ("Live potential savings", "$200,000.00") in brief["metrics"]
     assert ("Resources analyzed", "2") in brief["metrics"]
-    assert ("Recommendations", "0") in brief["metrics"]
-    assert [title for title, _ in brief["priorities"]] == [
-        "Activate savings now",
-        "Refresh governance",
-        "Productionize reporting",
-        "Align platform engineering",
+    assert ("Recommendations", "1") in brief["metrics"]
+    assert brief["priorities"] == [
+        (
+            "Commitment optimization",
+            "Validate the reservation purchase recommendation. Evidence: Two live Advisor records.",
+        )
     ]
     rendered_brief = json.dumps(brief)
     assert "$1.2M" not in rendered_brief
     assert "$1.5M" not in rendered_brief
+    assert "FY27" not in rendered_brief
+    assert "90-Day" not in rendered_brief
     assert "All values are calculated from this report run" in brief["evidence_note"]
 
 
@@ -306,7 +327,7 @@ def test_pptx_tables_are_compact_wrapped_and_within_slide_bounds():
         shape.text_frame
         for slide in presentation.slides
         for shape in slide.shapes
-        if shape.has_text_frame and shape.text.startswith("Activate savings now")
+        if shape.has_text_frame and shape.text.startswith("Commitment optimization")
     ]
     assert priority_bodies
     assert priority_bodies[0].word_wrap
@@ -721,3 +742,132 @@ def test_ai_token_tracking_uses_filter_dates_and_dict_rows(monkeypatch):
     assert report.ai_token_tracking
     assert report.ai_token_tracking[0]["serviceName"] == "Azure OpenAI"
     assert report.ai_token_tracking[0]["usageQuantity"] == 250
+
+
+def test_tenant_spend_summary_aggregates_live_cost_rows_and_honors_dates(monkeypatch):
+    captured = {}
+
+    async def fake_query_cost_details(self, subscription_id, start_date=None, end_date=None):
+        captured[subscription_id] = (start_date, end_date)
+        return [
+            {"UsageDate": "2026-08-01", "PreTaxCost": 10, "UsageQuantity": 2},
+            {"UsageDate": "2026-08-01", "PreTaxCost": 5, "UsageQuantity": 3},
+        ], SourceAudit(
+            source="Azure Cost Management",
+            endpoint="https://management.azure.com/live-cost",
+            duration_ms=1,
+            row_count=2,
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(AzureLiveClient, "query_cost_details", fake_query_cost_details)
+    report = asyncio.run(
+        build_report(
+            ReportDomain.tenant_spend_summary,
+            __import__("app.models", fromlist=["ReportRequest", "FilterSet"]).ReportRequest(
+                tenant_id="tenant-a",
+                subscription_ids=["sub-a", "sub-b"],
+                filters=__import__("app.models", fromlist=["FilterSet"]).FilterSet(
+                    start_date="2026-08-01",
+                    end_date="2026-08-31",
+                ),
+            ),
+            bearer_token="token",
+        )
+    )
+
+    assert captured == {
+        "sub-a": ("2026-08-01", "2026-08-31"),
+        "sub-b": ("2026-08-01", "2026-08-31"),
+    }
+    assert report.rows == [{
+        "usageDate": "2026-08-01",
+        "cost": 30.0,
+        "usageQuantity": 10.0,
+        "recordCount": 4,
+    }]
+    assert report.live_data_confirmed is True
+
+
+def test_quota_summary_uses_live_compute_usage_and_calculates_utilization(monkeypatch):
+    async def fake_query_resource_graph(self, subscription_ids, query):
+        return [{"subscriptionId": "sub-a", "location": "eastus"}], SourceAudit(
+            source="Azure Resource Graph",
+            endpoint="https://management.azure.com/live-resource-graph",
+            duration_ms=1,
+            row_count=1,
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    async def fake_list_compute_usages(self, subscription_id, location):
+        return [{
+            "subscriptionId": subscription_id,
+            "region": location,
+            "quotaName": "Total Regional vCPUs",
+            "currentValue": 80,
+            "limit": 100,
+            "unit": "Count",
+        }], SourceAudit(
+            source="Azure Compute Usage",
+            endpoint="https://management.azure.com/live-usage",
+            duration_ms=1,
+            row_count=1,
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(AzureLiveClient, "query_resource_graph", fake_query_resource_graph)
+    monkeypatch.setattr(AzureLiveClient, "list_compute_usages", fake_list_compute_usages)
+    report = asyncio.run(
+        build_report(
+            ReportDomain.quota_summary,
+            __import__("app.models", fromlist=["ReportRequest"]).ReportRequest(
+                tenant_id="tenant-a",
+                subscription_ids=["sub-a"],
+            ),
+            bearer_token="token",
+        )
+    )
+
+    assert report.rows[0]["utilizationPercent"] == 80.0
+    assert report.rows[0]["remaining"] == 20.0
+    assert {audit.source for audit in report.source_audit} == {
+        "Azure Resource Graph",
+        "Azure Compute Usage",
+    }
+
+
+def test_expiring_reservations_filters_to_selected_scope_and_calculates_days(monkeypatch):
+    async def fake_list_reservations(self):
+        return [
+            {
+                "reservationId": "selected",
+                "expiryDate": "2026-09-30T00:00:00Z",
+                "appliedScopes": ["/subscriptions/sub-a"],
+            },
+            {
+                "reservationId": "other",
+                "expiryDate": "2026-09-30T00:00:00Z",
+                "appliedScopes": ["/subscriptions/sub-b"],
+            },
+        ], SourceAudit(
+            source="Azure Reservations",
+            endpoint="https://management.azure.com/live-reservations",
+            duration_ms=1,
+            row_count=2,
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(AzureLiveClient, "list_reservations", fake_list_reservations)
+    report = asyncio.run(
+        build_report(
+            ReportDomain.expiring_reservations,
+            __import__("app.models", fromlist=["ReportRequest"]).ReportRequest(
+                tenant_id="tenant-a",
+                subscription_ids=["sub-a"],
+            ),
+            bearer_token="token",
+        )
+    )
+
+    assert [row["reservationId"] for row in report.rows] == ["selected"]
+    assert isinstance(report.rows[0]["remainingDays"], int)
