@@ -11,6 +11,7 @@ from pptx.util import Inches
 from app.main import LAST_REPORT, app
 from app.models import Recommendation, ReportDomain, ReportResult, SourceAudit
 from app.services.exporters import build_executive_brief, export_pdf, export_pptx
+from app.services.diagrams import build_report_diagram
 from app.services.reporting import build_report
 from app.services.azure_live import AzureLiveClient
 
@@ -22,7 +23,7 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.1.1"
+    assert response.json()["version"] == "1.1.2"
 
 
 def test_cli_login_uses_hidden_browser_flow(monkeypatch):
@@ -365,6 +366,118 @@ def test_pdf_handles_unicode_and_contains_topic_outline():
     assert content.startswith(b"%PDF")
     assert len(content) > 1_000
     assert b"/Outlines" in content
+
+
+def test_sample_inspired_domains_have_distinct_export_diagram_contracts():
+    domains = [
+        ReportDomain.tenant_spend_summary,
+        ReportDomain.cost_summary,
+        ReportDomain.reservation_savings,
+        ReportDomain.quota_summary,
+        ReportDomain.expiring_reservations,
+        ReportDomain.storage_costs,
+        ReportDomain.resource_group_costs,
+        ReportDomain.subscription_cost_summary,
+    ]
+    signatures = []
+    for domain in domains:
+        report = ReportResult(
+            domain=domain,
+            tenant_id="tenant-a",
+            subscription_scope=["sub-a"],
+            generated_at_utc=datetime.now(UTC),
+            execution_time_ms=10,
+            data_quality_score=100.0,
+            unresolved_fields_count=0,
+            live_data_confirmed=False,
+            source_audit=[],
+            rows=[],
+            recommendations=[],
+            warnings=["No accessible live rows were returned."],
+        )
+        diagram = build_report_diagram(report)
+
+        assert diagram is not None
+        assert diagram["scope"]
+        assert diagram["logic"]
+        assert diagram["panels"]
+        signatures.append(tuple(panel["title"] for panel in diagram["panels"]))
+
+    assert len(set(signatures)) == len(domains)
+
+
+def test_cost_summary_exports_native_diagrams_and_explicit_empty_states():
+    report = ReportResult(
+        domain=ReportDomain.cost_summary,
+        tenant_id="tenant-a",
+        subscription_scope=["sub-a", "sub-b"],
+        generated_at_utc=datetime.now(UTC),
+        execution_time_ms=10,
+        data_quality_score=100.0,
+        unresolved_fields_count=0,
+        live_data_confirmed=True,
+        source_audit=[],
+        rows=[
+            {
+                "usageDate": "2026-07",
+                "subscriptionId": "sub-a",
+                "chargeType": "Usage",
+                "meterCategory": "Compute",
+                "cost": 120.0,
+            },
+            {
+                "usageDate": "2026-08",
+                "subscriptionId": "sub-b",
+                "chargeType": "Purchase",
+                "meterCategory": "Storage",
+                "cost": 80.0,
+            },
+        ],
+        recommendations=[],
+        warnings=[],
+    )
+
+    presentation = Presentation(export_pptx(report))
+    slide_text = [
+        shape.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if shape.has_text_frame
+    ]
+    charts = [
+        shape
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if shape.has_chart
+    ]
+    pdf_content = export_pdf(report).read_bytes()
+
+    assert "Live Report Diagram: Cost Summary" in slide_text
+    assert {
+        "Cost by subscription",
+        "Subscription share",
+        "Monthly charge-type mix",
+        "Cost by meter category",
+    } <= set(slide_text)
+    assert len(charts) == 4
+    assert pdf_content.count(b"/Type /Page") - pdf_content.count(b"/Type /Pages") >= 4
+
+    empty_report = report.model_copy(
+        update={
+            "domain": ReportDomain.reservation_savings,
+            "rows": [],
+            "live_data_confirmed": False,
+            "warnings": ["Reservation sources were inaccessible."],
+        }
+    )
+    empty_presentation = Presentation(export_pptx(empty_report))
+    empty_text = [
+        shape.text
+        for slide in empty_presentation.slides
+        for shape in slide.shapes
+        if shape.has_text_frame
+    ]
+    assert sum(text.startswith("No live values were returned") for text in empty_text) == 4
 
 
 def test_export_with_report_returns_file():

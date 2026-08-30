@@ -20,7 +20,7 @@ from app.services.azure_live import AzureLiveClient
 from app.services.exporters import export_csv, export_pdf, export_pptx, export_sqlite
 from app.services.reporting import build_report
 
-APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.1.1")
+APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.1.2")
 app = FastAPI(title=settings.app_name, version=APP_VERSION)
 
 APP_ROOT = FsPath(getattr(sys, "_MEIPASS", FsPath(__file__).resolve().parents[1]))

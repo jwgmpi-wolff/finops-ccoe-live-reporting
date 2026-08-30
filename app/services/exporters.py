@@ -10,11 +10,15 @@ import sys
 
 from fpdf import FPDF
 from pptx import Presentation
+from pptx.chart.data import ChartData
 from pptx.dml.color import RGBColor
+from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Inches, Pt
 
 from app.models import ReportResult
+from app.services.diagrams import build_report_diagram
 
 
 if getattr(sys, "frozen", False):
@@ -336,6 +340,256 @@ def export_sqlite(report: ReportResult) -> Path:
     return output
 
 
+DIAGRAM_PDF_COLORS = [
+    (22, 138, 173),
+    (15, 118, 110),
+    (234, 88, 12),
+    (202, 138, 4),
+    (37, 99, 235),
+    (190, 24, 93),
+]
+
+
+def _format_diagram_value(value: float, value_format: str) -> str:
+    if value_format == "currency":
+        return _format_money(value)
+    if value_format == "percent":
+        return f"{value:,.1f}%"
+    if value_format == "days":
+        return f"{value:,.0f} days"
+    return f"{value:,.2f}" if value % 1 else f"{value:,.0f}"
+
+
+def _draw_pdf_panel(
+    pdf: FPDF,
+    panel: dict[str, object],
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    pdf.set_fill_color(245, 247, 250)
+    pdf.set_draw_color(203, 213, 225)
+    pdf.rect(x, y, width, height, style="DF")
+    pdf.set_text_color(20, 31, 56)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_xy(x + 3, y + 2.5)
+    pdf.cell(width - 6, 4, _pdf_safe_text(panel["title"])[:70])
+    pdf.set_text_color(71, 85, 105)
+    pdf.set_font("Helvetica", "", 6.5)
+    pdf.set_xy(x + 3, y + 7)
+    pdf.cell(width - 6, 3.5, _pdf_safe_text(panel["subtitle"])[:105])
+
+    kind = str(panel["kind"])
+    value_format = str(panel.get("valueFormat", "number"))
+    entries = list(panel.get("entries", []))[:10]
+    categories = list(panel.get("categories", []))
+    series = [str(value) for value in panel.get("series", [])]
+    has_values = bool(categories and series) if kind == "share" else bool(entries)
+    if kind == "donut":
+        entries = [entry for entry in entries if float(entry["value"]) > 0]
+        has_values = bool(entries)
+    if kind == "share":
+        has_values = has_values and any(
+            any(float(value) != 0 for value in category["values"])
+            for category in categories
+        )
+
+    if not has_values:
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(71, 85, 105)
+        pdf.set_xy(x + 8, y + 24)
+        pdf.multi_cell(
+            width - 16,
+            5,
+            "No live values were returned for this diagram. Review Operational Notes for scope or access details.",
+            align="C",
+        )
+        return
+
+    if kind == "bars":
+        shown = entries[:6]
+        max_value = max(abs(float(entry["value"])) for entry in shown) or 1
+        row_height = (height - 16) / max(len(shown), 1)
+        label_width = min(43, width * 0.34)
+        value_width = min(27, width * 0.22)
+        track_width = width - label_width - value_width - 9
+        for index, entry in enumerate(shown):
+            row_y = y + 13 + (index * row_height)
+            value = float(entry["value"])
+            pdf.set_font("Helvetica", "", 6.5)
+            pdf.set_text_color(51, 65, 85)
+            pdf.set_xy(x + 3, row_y)
+            pdf.cell(label_width, row_height, _pdf_table_text(entry["label"], 18)[:30])
+            pdf.set_fill_color(226, 232, 240)
+            pdf.rect(x + 4 + label_width, row_y + 1.4, track_width, max(2.5, row_height - 3), style="F")
+            pdf.set_fill_color(22, 138, 173)
+            pdf.rect(
+                x + 4 + label_width,
+                row_y + 1.4,
+                track_width * (abs(value) / max_value),
+                max(2.5, row_height - 3),
+                style="F",
+            )
+            pdf.set_font("Helvetica", "B", 6.5)
+            pdf.set_xy(x + 6 + label_width + track_width, row_y)
+            pdf.cell(value_width, row_height, _format_diagram_value(value, value_format), align="R")
+        return
+
+    if kind == "columns":
+        shown = entries[:8]
+        max_value = max(abs(float(entry["value"])) for entry in shown) or 1
+        chart_x = x + 4
+        chart_y = y + 15
+        chart_width = width - 8
+        chart_height = height - 27
+        slot_width = chart_width / max(len(shown), 1)
+        pdf.set_draw_color(148, 163, 184)
+        pdf.line(chart_x, chart_y + chart_height, chart_x + chart_width, chart_y + chart_height)
+        for index, entry in enumerate(shown):
+            value = float(entry["value"])
+            bar_height = chart_height * (abs(value) / max_value)
+            bar_width = max(2, slot_width * 0.62)
+            bar_x = chart_x + (index * slot_width) + ((slot_width - bar_width) / 2)
+            pdf.set_fill_color(22, 138, 173)
+            pdf.rect(bar_x, chart_y + chart_height - bar_height, bar_width, bar_height, style="F")
+            pdf.set_font("Helvetica", "", 5.5)
+            pdf.set_text_color(71, 85, 105)
+            pdf.set_xy(chart_x + (index * slot_width), chart_y + chart_height + 1)
+            pdf.cell(slot_width, 3, _pdf_table_text(entry["label"], 10)[:10], align="C")
+            pdf.set_xy(chart_x + (index * slot_width), max(chart_y, chart_y + chart_height - bar_height - 3))
+            pdf.cell(slot_width, 3, _format_diagram_value(value, value_format)[:15], align="C")
+        return
+
+    if kind == "donut":
+        shown = entries[:6]
+        total = sum(float(entry["value"]) for entry in shown)
+        diameter = min(height - 20, width * 0.28)
+        donut_x = x + 5
+        donut_y = y + 15
+        angle = 0.0
+        for index, entry in enumerate(shown):
+            sweep = (float(entry["value"]) / total) * 360
+            pdf.set_fill_color(*DIAGRAM_PDF_COLORS[index % len(DIAGRAM_PDF_COLORS)])
+            pdf.solid_arc(donut_x, donut_y, diameter, angle, angle + sweep, style="F")
+            angle += sweep
+        hole_size = diameter * 0.45
+        pdf.set_fill_color(245, 247, 250)
+        pdf.ellipse(
+            donut_x + (diameter / 2) - (hole_size / 2),
+            donut_y + (diameter / 2) - (hole_size / 2),
+            hole_size,
+            hole_size,
+            style="F",
+        )
+        legend_x = donut_x + diameter + 5
+        legend_width = width - (legend_x - x) - 4
+        for index, entry in enumerate(shown):
+            legend_y = y + 14 + (index * 7)
+            pdf.set_fill_color(*DIAGRAM_PDF_COLORS[index % len(DIAGRAM_PDF_COLORS)])
+            pdf.rect(legend_x, legend_y + 1, 3, 3, style="F")
+            pdf.set_font("Helvetica", "", 6.5)
+            pdf.set_text_color(51, 65, 85)
+            pdf.set_xy(legend_x + 5, legend_y)
+            share = (float(entry["value"]) / total) * 100
+            pdf.cell(
+                legend_width - 5,
+                5,
+                f"{_pdf_table_text(entry['label'], 18)[:24]}  {share:.1f}%",
+            )
+        return
+
+    if kind == "share":
+        shown_categories = categories[:5]
+        shown_series = series[:6]
+        label_width = min(32, width * 0.28)
+        track_width = width - label_width - 8
+        row_height = (height - 25) / max(len(shown_categories), 1)
+        for category_index, category in enumerate(shown_categories):
+            row_y = y + 14 + (category_index * row_height)
+            values = [float(value) for value in category["values"][:len(shown_series)]]
+            total = sum(values)
+            pdf.set_font("Helvetica", "", 6.5)
+            pdf.set_text_color(51, 65, 85)
+            pdf.set_xy(x + 3, row_y)
+            pdf.cell(label_width, row_height, _pdf_table_text(category["label"], 12)[:18])
+            segment_x = x + 4 + label_width
+            for series_index, value in enumerate(values):
+                segment_width = track_width * (value / total) if total else 0
+                pdf.set_fill_color(*DIAGRAM_PDF_COLORS[series_index % len(DIAGRAM_PDF_COLORS)])
+                pdf.rect(segment_x, row_y + 1.5, segment_width, max(3, row_height - 3), style="F")
+                segment_x += segment_width
+        legend_x = x + 4
+        legend_y = y + height - 7
+        for series_index, series_name in enumerate(shown_series):
+            item_width = (width - 8) / max(len(shown_series), 1)
+            pdf.set_fill_color(*DIAGRAM_PDF_COLORS[series_index % len(DIAGRAM_PDF_COLORS)])
+            pdf.rect(legend_x + (series_index * item_width), legend_y + 1, 3, 3, style="F")
+            pdf.set_font("Helvetica", "", 5.5)
+            pdf.set_xy(legend_x + (series_index * item_width) + 4, legend_y)
+            pdf.cell(item_width - 4, 5, _pdf_table_text(series_name, 10)[:14])
+
+
+def _add_pdf_diagram_page(
+    pdf: FPDF,
+    report: ReportResult,
+    diagram: dict[str, object],
+    palette: dict[str, tuple[int, int, int]],
+) -> None:
+    pdf.add_page()
+    pdf.start_section("Report Diagram", level=0)
+    page_width = pdf.w - pdf.l_margin - pdf.r_margin
+    pdf.set_fill_color(*palette["navy"])
+    pdf.rect(0, 0, pdf.w, 20, style="F")
+    pdf.set_text_color(*palette["white"])
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.set_xy(pdf.l_margin, 6)
+    pdf.cell(page_width * 0.65, 7, _pdf_safe_text(f"Live Report Diagram: {diagram['title']}"))
+    pdf.set_font("Helvetica", "", 7)
+    pdf.set_xy(pdf.l_margin + (page_width * 0.65), 7)
+    pdf.cell(
+        page_width * 0.35,
+        5,
+        f"Collected {report.generated_at_utc.strftime('%Y-%m-%d %H:%M UTC')}",
+        align="R",
+    )
+
+    band_y = 24
+    band_height = 17
+    pdf.set_fill_color(240, 253, 250)
+    pdf.set_draw_color(203, 213, 225)
+    pdf.rect(pdf.l_margin, band_y, page_width, band_height, style="DF")
+    definition_width = (page_width - 4) / 2
+    pdf.set_text_color(*palette["slate"])
+    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_xy(pdf.l_margin + 3, band_y + 2)
+    pdf.cell(definition_width - 6, 4, "SCOPE")
+    pdf.set_font("Helvetica", "", 7)
+    pdf.set_xy(pdf.l_margin + 3, band_y + 6)
+    pdf.multi_cell(definition_width - 6, 3.5, _pdf_table_text(diagram["scope"], 42))
+    logic_x = pdf.l_margin + definition_width + 4
+    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_xy(logic_x, band_y + 2)
+    pdf.cell(definition_width - 6, 4, "LOGIC")
+    pdf.set_font("Helvetica", "", 7)
+    pdf.set_xy(logic_x, band_y + 6)
+    pdf.multi_cell(definition_width - 6, 3.5, _pdf_table_text(diagram["logic"], 42))
+
+    panel_gap = 4
+    panel_width = (page_width - panel_gap) / 2
+    panel_height = 69
+    positions = [
+        (pdf.l_margin, 46),
+        (pdf.l_margin + panel_width + panel_gap, 46),
+        (pdf.l_margin, 119),
+        (pdf.l_margin + panel_width + panel_gap, 119),
+    ]
+    for panel, (x, y) in zip(list(diagram["panels"])[:4], positions, strict=False):
+        _draw_pdf_panel(pdf, panel, x, y, panel_width, panel_height)
+
+    pdf.set_text_color(*palette["slate"])
+
+
 def export_pdf(report: ReportResult) -> Path:
     ensure_export_dir()
     output = EXPORT_DIR / f"{report.domain.value}_{report.generated_at_utc.strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -444,6 +698,11 @@ def export_pdf(report: ReportResult) -> Path:
 
     pdf.add_page()
     pdf.insert_toc_placeholder(render_toc, pages=1)
+
+    diagram = build_report_diagram(report)
+    if diagram:
+        _add_pdf_diagram_page(pdf, report, diagram, palette)
+        pdf.add_page()
 
     # Executive summary
     topic_header("Executive Summary", "Current-run financial, coverage, and data-quality indicators for executive review.")
@@ -696,6 +955,168 @@ def export_pptx(report: ReportResult) -> Path:
                 run.font.size = Pt(16 if idx == 0 else 13)
                 run.font.color.rgb = palette["slate"]
 
+    def add_chart_panel(
+        slide,
+        panel: dict[str, object],
+        left: float,
+        top: float,
+        width: float,
+        height: float,
+    ) -> None:
+        background = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(left),
+            Inches(top),
+            Inches(width),
+            Inches(height),
+        )
+        background.fill.solid()
+        background.fill.fore_color.rgb = palette["pale"]
+        background.line.color.rgb = palette["light"]
+
+        title_box = slide.shapes.add_textbox(
+            Inches(left + 0.18), Inches(top + 0.1), Inches(width - 0.36), Inches(0.25)
+        )
+        set_text(title_box.text_frame, str(panel["title"]), size=11, bold=True, color=palette["navy"])
+        subtitle_box = slide.shapes.add_textbox(
+            Inches(left + 0.18), Inches(top + 0.37), Inches(width - 0.36), Inches(0.2)
+        )
+        set_text(subtitle_box.text_frame, str(panel["subtitle"]), size=7, color=palette["slate"])
+
+        kind = str(panel["kind"])
+        chart_data = ChartData()
+        has_values = False
+        if kind == "share":
+            series = [str(value) for value in panel.get("series", [])]
+            categories = list(panel.get("categories", []))
+            chart_data.categories = [str(category["label"]) for category in categories]
+            for series_index, series_name in enumerate(series):
+                values = [float(category["values"][series_index]) for category in categories]
+                chart_data.add_series(series_name, values)
+                has_values = has_values or any(value != 0 for value in values)
+            chart_type = XL_CHART_TYPE.BAR_STACKED_100
+        else:
+            entries = list(panel.get("entries", []))[:10]
+            if kind == "donut":
+                entries = [entry for entry in entries if float(entry["value"]) > 0]
+            chart_data.categories = [str(entry["label"]) for entry in entries]
+            values = [float(entry["value"]) for entry in entries]
+            if entries:
+                chart_data.add_series(str(panel["title"]), values)
+            has_values = bool(entries) and (kind != "donut" or any(value > 0 for value in values))
+            chart_type = {
+                "bars": XL_CHART_TYPE.BAR_CLUSTERED,
+                "columns": XL_CHART_TYPE.COLUMN_CLUSTERED,
+                "donut": XL_CHART_TYPE.DOUGHNUT,
+            }[kind]
+
+        if not has_values:
+            empty_box = slide.shapes.add_textbox(
+                Inches(left + 0.45),
+                Inches(top + 0.95),
+                Inches(width - 0.9),
+                Inches(height - 1.2),
+            )
+            set_text(
+                empty_box.text_frame,
+                "No live values were returned for this diagram. Review Operational Notes for scope or access details.",
+                size=10,
+                color=palette["slate"],
+                align=PP_ALIGN.CENTER,
+            )
+            return
+
+        chart = slide.shapes.add_chart(
+            chart_type,
+            Inches(left + 0.12),
+            Inches(top + 0.68),
+            Inches(width - 0.24),
+            Inches(height - 0.78),
+            chart_data,
+        ).chart
+        chart.chart_style = 10
+        chart.has_title = False
+        chart.has_legend = kind in {"donut", "share"}
+        if chart.has_legend:
+            chart.legend.position = XL_LEGEND_POSITION.BOTTOM
+            chart.legend.include_in_layout = False
+            chart.legend.font.size = Pt(7)
+
+        plot = chart.plots[0]
+        value_format = str(panel.get("valueFormat", "number"))
+        number_format = {
+            "currency": "$#,##0.00",
+            "days": '0" days"',
+            "number": "#,##0.##",
+            "percent": '0.0"%"',
+        }.get(value_format, "#,##0.##")
+        if kind == "share":
+            number_format = "0%"
+        if kind == "donut":
+            plot.hole_size = 55
+            plot.vary_by_categories = True
+            plot.has_data_labels = True
+            plot.data_labels.show_percentage = True
+            plot.data_labels.show_category_name = False
+            plot.data_labels.font.size = Pt(7)
+        else:
+            chart.category_axis.tick_labels.font.size = Pt(7)
+            chart.value_axis.tick_labels.font.size = Pt(7)
+            chart.value_axis.tick_labels.number_format = number_format
+            chart.value_axis.has_major_gridlines = True
+            plot.has_data_labels = True
+            plot.data_labels.show_value = kind != "share"
+            plot.data_labels.show_percentage = kind == "share"
+            plot.data_labels.number_format = number_format
+            plot.data_labels.font.size = Pt(7)
+            if kind == "bars":
+                chart.category_axis.reverse_order = True
+
+    def add_diagram_slide(diagram: dict[str, object]) -> None:
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        section_slides["Report Diagram"] = len(presentation.slides)
+
+        header = slide.shapes.add_textbox(Inches(0.5), Inches(0.18), Inches(8.4), Inches(0.4))
+        set_text(
+            header.text_frame,
+            f"Live Report Diagram: {diagram['title']}",
+            size=20,
+            bold=True,
+            color=palette["navy"],
+        )
+        freshness = slide.shapes.add_textbox(Inches(9.0), Inches(0.22), Inches(3.8), Inches(0.28))
+        set_text(
+            freshness.text_frame,
+            f"Collected {report.generated_at_utc.strftime('%Y-%m-%d %H:%M UTC')} | {len(report.subscription_scope)} subscription(s)",
+            size=8,
+            color=palette["slate"],
+            align=PP_ALIGN.RIGHT,
+        )
+
+        definition = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0.5), Inches(0.68), Inches(12.3), Inches(0.72),
+        )
+        definition.fill.solid()
+        definition.fill.fore_color.rgb = RGBColor(240, 253, 250)
+        definition.line.color.rgb = palette["light"]
+        scope_box = slide.shapes.add_textbox(Inches(0.72), Inches(0.78), Inches(5.7), Inches(0.5))
+        set_text(scope_box.text_frame, f"Scope: {diagram['scope']}", size=9, color=palette["slate"])
+        logic_box = slide.shapes.add_textbox(Inches(6.55), Inches(0.78), Inches(6.0), Inches(0.5))
+        set_text(logic_box.text_frame, f"Logic: {diagram['logic']}", size=9, color=palette["slate"])
+
+        panels = list(diagram["panels"])
+        panel_width = 6.02
+        panel_height = 2.55
+        positions = [
+            (0.5, 1.55),
+            (6.78, 1.55),
+            (0.5, 4.28),
+            (6.78, 4.28),
+        ]
+        for panel, (left, top) in zip(panels[:4], positions, strict=False):
+            add_chart_panel(slide, panel, left, top, panel_width, panel_height)
+
     def add_contents_slide():
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
         header = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12.0), Inches(0.5))
@@ -901,6 +1322,9 @@ def export_pptx(report: ReportResult) -> Path:
         ("Executive Overview", "summary, priorities, action plan, and decisions"),
         ("Report Results", "live records for the selected report topic"),
     ]
+    diagram = build_report_diagram(report)
+    if diagram:
+        report_topics.insert(1, ("Report Diagram", "scope, logic, and domain-specific live diagrams"))
     if report.recommendations:
         report_topics.insert(1, ("Recommendations", "impact, confidence, scope, actions, and evidence"))
     if report.ai_token_summary or report.ai_token_tracking:
@@ -914,6 +1338,8 @@ def export_pptx(report: ReportResult) -> Path:
     contents_frame = add_contents_slide()
     add_section_divider("Executive Overview", "Current-run summary, priorities, action plan, and decisions.")
     add_summary_slide()
+    if diagram:
+        add_diagram_slide(diagram)
     add_bullet_slide(
         "Executive Priorities",
         [f"{title}: {detail}" for title, detail in brief["priorities"]],

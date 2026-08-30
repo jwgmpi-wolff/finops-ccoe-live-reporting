@@ -835,10 +835,11 @@ function renderMultiLineChart(panel, series) {
   panel.appendChild(chart);
 }
 
-function renderRankedBars(panel, entries, valueFormatter = formatCurrency, tone = "cost") {
+function renderRankedBars(panel, entries, valueFormatter = formatCurrency, tone = "cost", order = "descending") {
   const list = document.createElement("div");
   list.className = "report-bars";
-  const ranked = [...entries].sort((left, right) => right.value - left.value).slice(0, 10);
+  const direction = order === "ascending" ? 1 : -1;
+  const ranked = [...entries].sort((left, right) => direction * (left.value - right.value)).slice(0, 10);
   const maxValue = Math.max(...ranked.map((entry) => entry.value), 1);
 
   if (!ranked.length) {
@@ -1002,7 +1003,7 @@ const reportDiagramSpecs = {
     logic: "Sum actual cost and usage by subscription, charge type, meter category, and usage date.",
   },
   reservation_savings: {
-    scope: "Azure Advisor recommendations in selected subscriptions",
+    scope: "Azure Cost Management and Advisor evidence in selected subscriptions",
     logic: "Show incurred reservation cost from Cost Management separately from annual savings estimates returned by Azure Advisor.",
   },
   quota_summary: {
@@ -1073,7 +1074,7 @@ function renderDomainDiagrams(data, charts) {
       return { ...row, expiryCohort, reservationCount: 1 };
     });
     appendChart(charts, "Reservations by expiry cohort", "Count grouped by calculated remaining days", (panel) => renderColumns(panel, groupTotals(cohorts, "expiryCohort", "reservationCount"), formatCompactNumber, "expiry"));
-    appendChart(charts, "Nearest reservation expirations", "Remaining days by reservation", (panel) => renderRankedBars(panel, rows.map((row) => ({ label: row.displayName || row.reservationId || "Unnamed reservation", value: Math.max(numericValue(row.remainingDays), 0) })), (value) => `${formatCompactNumber(value)} days`, "expiry"));
+    appendChart(charts, "Nearest reservation expirations", "Remaining days by reservation", (panel) => renderRankedBars(panel, rows.filter((row) => numericValue(row.remainingDays) >= 0).map((row) => ({ label: row.displayName || row.reservationId || "Unnamed reservation", value: numericValue(row.remainingDays) })), (value) => `${formatCompactNumber(value)} days`, "expiry", "ascending"));
     appendChart(charts, "Matched incurred cost", "Cost is shown only where reservation IDs matched across live sources", (panel) => renderRankedBars(panel, rows.filter((row) => row.incurredCost !== null && row.incurredCost !== undefined).map((row) => ({ label: row.displayName || row.reservationId || "Unnamed reservation", value: numericValue(row.incurredCost) }))));
     appendChart(charts, "Reservation resource types", "Share of live reservation inventory", (panel) => renderDonut(panel, groupTotals(rows.map((row) => ({ ...row, reservationCount: 1 })), "reservedResourceType", "reservationCount"), formatCompactNumber));
     return;

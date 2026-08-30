@@ -114,7 +114,7 @@ The report catalog includes live equivalents of the layouts in `SAMPLE PowerBi o
 
 Select a tenant, one or more subscriptions, an optional date range, and a report domain, then choose **Run Live Report**. Running the report again refreshes it from Microsoft APIs using the current bearer token. PDF, PowerPoint, CSV, and SQLite exports are generated from that completed run and include collection time, scope, warnings, and source audit records.
 
-The browser renders a distinct diagram composition for each domain, modeled on the corresponding sample page:
+The browser, PDF, and PowerPoint outputs render a distinct diagram composition for each domain, modeled on the corresponding sample page:
 
 | Report | Diagrams and calculations |
 | --- | --- |
@@ -156,15 +156,16 @@ The agent API is deployed to Azure Container Apps at:
 3. `app/services/azure_live.py`: Azure API connectors and query logic.
 4. `app/services/reporting.py`: domain orchestration and recommendations.
 5. `app/services/enrichment.py`: enrichment and quality scoring.
-6. `app/services/exporters.py`: CSV/PDF/PPTX/SQLite export builders.
-7. `app/static/app.js`: frontend behavior and report execution flow.
-8. `deploy-local.ps1`: one-command local run.
-9. `desktop_launcher.py` and `FinOpsCCoE.spec`: Windows desktop application entry point and package definition.
-10. `build-windows.ps1` and `installer/FinOpsCCoE.iss`: reproducible Windows application and installer build.
-11. `deploy-function.ps1`: Linux Flex Consumption Function App deployment and verification.
-12. `deploy-azure.ps1`: legacy App Service provisioning + source deployment.
-13. `Dockerfile`: Python 3.11 image for Azure Container Apps.
-14. `infra/azuredeploy.json`: ARM template for the App Service Deploy-to-Azure button.
+6. `app/services/diagrams.py`: canonical scope, logic, panel, and aggregation contracts for sample-matched report diagrams.
+7. `app/services/exporters.py`: CSV/PDF/PPTX/SQLite export builders, including native vector diagram pages and slides.
+8. `app/static/app.js`: frontend behavior and report execution flow.
+9. `deploy-local.ps1`: one-command local run.
+10. `desktop_launcher.py` and `FinOpsCCoE.spec`: Windows desktop application entry point and package definition.
+11. `build-windows.ps1` and `installer/FinOpsCCoE.iss`: reproducible Windows application and installer build.
+12. `deploy-function.ps1`: Linux Flex Consumption Function App deployment and verification.
+13. `deploy-azure.ps1`: legacy App Service provisioning + source deployment.
+14. `Dockerfile`: Python 3.11 image for Azure Container Apps.
+15. `infra/azuredeploy.json`: ARM template for the App Service Deploy-to-Azure button.
 
 ## Download for Windows
 
@@ -188,7 +189,7 @@ if ($actual -ne $expected) { throw "Installer checksum does not match." }
 
 The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports still require the signed-in user to have Azure CLI or browser OAuth authentication and Azure RBAC access.
 
-Version 1.1.1 adds distinct sample-matched diagram compositions for every refreshable EA-style report and separates incurred reservation cost, potential savings, and expiry evidence. Exported values remain calculated only from the current live report run.
+Version 1.1.2 adds distinct sample-matched diagram compositions to the browser, PDF, and PowerPoint outputs and separates incurred reservation cost, potential savings, and expiry evidence. Exported values remain calculated only from the current live report run.
 
 ## Install on Windows
 
@@ -243,8 +244,8 @@ Generated application and installer files under `dist` are intentionally exclude
 When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
-git tag v1.1.1
-git push origin v1.1.1
+git tag v1.1.2
+git push origin v1.1.2
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -258,7 +259,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.1.1 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.1.2 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:
