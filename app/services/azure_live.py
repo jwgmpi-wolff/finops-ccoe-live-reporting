@@ -21,6 +21,23 @@ class AzureLiveClient:
             "Content-Type": "application/json",
         }
 
+    async def _post_cost_query(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
+        for attempt in range(3):
+            async with httpx.AsyncClient(timeout=120) as client:
+                response = await client.post(url, headers=self._headers, json=body)
+            if response.status_code != 429 or attempt == 2:
+                response.raise_for_status()
+                return response.json()
+
+            retry_after = response.headers.get("Retry-After")
+            try:
+                delay_seconds = float(retry_after) if retry_after else float(2**attempt)
+            except ValueError:
+                delay_seconds = float(2**attempt)
+            await asyncio.sleep(min(delay_seconds, 4.0))
+
+        raise RuntimeError("Azure Cost Management query retry limit reached")
+
     async def list_tenants(self) -> tuple[list[dict[str, Any]], SourceAudit]:
         url = f"{ARM_API}/tenants?api-version=2022-12-01"
         start = time.perf_counter()
@@ -129,10 +146,8 @@ class AzureLiveClient:
             },
         }
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(url, headers=self._headers, json=body)
-            response.raise_for_status()
-            rows = response.json().get("properties", {}).get("rows", [])
+        payload = await self._post_cost_query(url, body)
+        rows = payload.get("properties", {}).get("rows", [])
         elapsed = int((time.perf_counter() - start) * 1000)
         return rows, SourceAudit(
             source="Azure Cost Management",
@@ -181,10 +196,8 @@ class AzureLiveClient:
             }
 
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(url, headers=self._headers, json=body)
-            response.raise_for_status()
-            properties = response.json().get("properties", {})
+        payload = await self._post_cost_query(url, body)
+        properties = payload.get("properties", {})
 
         column_names = [
             str(column.get("name") or f"column{index}")
@@ -236,10 +249,8 @@ class AzureLiveClient:
             }
 
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(url, headers=self._headers, json=body)
-            response.raise_for_status()
-            properties = response.json().get("properties", {})
+        payload = await self._post_cost_query(url, body)
+        properties = payload.get("properties", {})
         column_names = [
             str(column.get("name") or f"column{index}")
             for index, column in enumerate(properties.get("columns", []))
