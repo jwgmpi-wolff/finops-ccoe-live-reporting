@@ -12,15 +12,20 @@ A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot 
 
 ## Visual Overview & Capability Diagrams
 
-| Live Dashboard & Tenant Discovery | Result Inspection & Azure Handoff |
+| Live Reporting & Idle Waste Detection | Result Inspection & Azure Handoff |
 | :---: | :---: |
-| ![Live UI authentication sample](docs/screenshots/ui-auth-live.png) | ![Live result details sample](docs/screenshots/live-result-details.png) |
-| *Live tenant/subscription discovery, filters, and graphs* | *Drilldown into individual findings with portal direct-links* |
+| ![Idle Waste Detection test fixture](docs/screenshots/report-scopes/idle_waste_detection.jpg) | ![Live result details sample](docs/screenshots/live-result-details.png) |
+| *Live Idle Waste Detection report with KPI cards, savings by recommendation, impact breakdown, and category charts* | *Drilldown into individual findings with portal direct-links and metadata* |
 
-| Export Artifact Formats | Platform Capabilities & Workflows |
+| Live Tenant & Subscription Discovery | Export Artifact Formats |
 | :---: | :---: |
-| ![Successful export sample](docs/screenshots/export-success.png) | ![Dashboard overview](docs/screenshots/dashboard-overview.svg) |
-| *Committed multi-format exports (CSV, PDF, PPTX, SQLite)* | *Authentication boundary, query engine, and Copilot workflows* |
+| ![Live UI authentication sample](docs/screenshots/ui-auth-live.png) | ![Successful export sample](docs/screenshots/export-success.png) |
+| *Live tenant/subscription discovery, filters, and 24 scope selections* | *Committed multi-format exports (CSV, PDF, PPTX, SQLite)* |
+
+| Platform Architecture & Copilot Workflows | Mobile Responsive Layout |
+| :---: | :---: |
+| ![Dashboard overview](docs/screenshots/dashboard-overview.svg) | ![Mobile Idle Waste Detection test fixture](docs/screenshots/report-scopes/mobile-idle-waste-detection.jpg) |
+| *Authentication boundary, query engine, and Copilot workflows* | *Mobile-optimized graph cards, drilldown tables, and touch controls* |
 
 ## Contents
 
