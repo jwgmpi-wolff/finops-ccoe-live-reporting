@@ -201,6 +201,74 @@ class AzureLiveClient:
             executed_at_utc=datetime.now(UTC),
         )
 
+    async def query_reservation_costs(
+        self,
+        subscription_id: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> tuple[list[dict[str, Any]], SourceAudit]:
+        url = (
+            f"{ARM_API}/subscriptions/{subscription_id}/providers/Microsoft.CostManagement/query"
+            "?api-version=2023-03-01"
+        )
+        body: dict[str, Any] = {
+            "type": "ActualCost",
+            "timeframe": "MonthToDate",
+            "dataset": {
+                "granularity": "Daily",
+                "aggregation": {"cost": {"name": "PreTaxCost", "function": "Sum"}},
+                "grouping": [
+                    {"type": "Dimension", "name": "ReservationId"},
+                    {"type": "Dimension", "name": "ReservationName"},
+                    {"type": "Dimension", "name": "ChargeType"},
+                    {"type": "Dimension", "name": "MeterCategory"},
+                ],
+            },
+        }
+        if start_date and end_date:
+            body["timeframe"] = "Custom"
+            body["timePeriod"] = {
+                "from": f"{start_date}T00:00:00Z",
+                "to": f"{end_date}T23:59:59Z",
+            }
+
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.post(url, headers=self._headers, json=body)
+            response.raise_for_status()
+            properties = response.json().get("properties", {})
+        column_names = [
+            str(column.get("name") or f"column{index}")
+            for index, column in enumerate(properties.get("columns", []))
+        ]
+        parsed_rows = [
+            dict(zip(column_names, row, strict=False))
+            for row in properties.get("rows", [])
+            if isinstance(row, list)
+        ]
+        rows = [
+            {
+                "recordType": "reservation_cost",
+                "subscriptionId": subscription_id,
+                "usageDate": _case_insensitive_value(row, "UsageDate", "Date"),
+                "reservationId": _case_insensitive_value(row, "ReservationId") or "",
+                "reservationName": _case_insensitive_value(row, "ReservationName") or "",
+                "chargeType": _case_insensitive_value(row, "ChargeType") or "",
+                "meterCategory": _case_insensitive_value(row, "MeterCategory") or "",
+                "cost": _case_insensitive_value(row, "cost", "PreTaxCost"),
+            }
+            for row in parsed_rows
+            if _case_insensitive_value(row, "ReservationId", "ReservationName")
+        ]
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return rows, SourceAudit(
+            source="Azure Cost Management (Reservations)",
+            endpoint=url,
+            duration_ms=elapsed,
+            row_count=len(rows),
+            executed_at_utc=datetime.now(UTC),
+        )
+
     async def list_reservations(self) -> tuple[list[dict[str, Any]], SourceAudit]:
         url = f"{ARM_API}/providers/Microsoft.Capacity/reservationOrders?api-version=2022-11-01"
         start = time.perf_counter()
@@ -396,3 +464,11 @@ class AzureLiveClient:
                 return None
             data = response.json()
         return data.get("displayName") or data.get("userPrincipalName")
+
+
+def _case_insensitive_value(row: dict[str, Any], *names: str) -> Any:
+    normalized = {str(key).lower(): value for key, value in row.items()}
+    for name in names:
+        if name.lower() in normalized:
+            return normalized[name.lower()]
+    return None

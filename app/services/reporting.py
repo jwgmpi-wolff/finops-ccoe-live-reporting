@@ -92,12 +92,12 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
         elif domain == ReportDomain.resource_group_costs:
             rows = _aggregate_cost_rows(
                 cost_details,
-                ["subscriptionId", "resourceGroup", "usageDate"],
+                ["subscriptionId", "resourceGroup", "resourceName", "usageDate"],
             )
         elif domain == ReportDomain.subscription_cost_summary:
             rows = _aggregate_cost_rows(
                 cost_details,
-                ["subscriptionId", "serviceName", "meterCategory", "usageDate"],
+                ["subscriptionId", "serviceName", "meterCategory", "resourceName", "usageDate"],
             )
         else:
             rows = cost_details
@@ -164,6 +164,7 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
 
                     rows.append(
                         {
+                            "recordType": "advisor_recommendation",
                             "subscriptionId": subscription_id,
                             "resourceId": properties.get("resourceMetadata", {}).get("resourceId", ""),
                             "recommendationType": problem,
@@ -178,11 +179,34 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
                     f"Advisor query skipped for subscription {subscription_id}: {exc}"
                 )
 
+    reservation_cost_rows: list[dict[str, Any]] = []
+    if domain in {ReportDomain.reservation_savings, ReportDomain.expiring_reservations}:
+        for subscription_id in request.subscription_ids:
+            try:
+                cost_rows, audit = await client.query_reservation_costs(
+                    subscription_id,
+                    start_date=request.filters.start_date,
+                    end_date=request.filters.end_date,
+                )
+                source_audit.append(audit)
+                reservation_cost_rows.extend(cost_rows)
+            except Exception as exc:
+                warnings.append(
+                    f"Reservation cost query skipped for subscription {subscription_id}: {exc}"
+                )
+        if domain == ReportDomain.reservation_savings:
+            rows.extend(reservation_cost_rows)
+
     if domain == ReportDomain.expiring_reservations:
         try:
             reservation_rows, audit = await client.list_reservations()
             source_audit.append(audit)
             selected_scope = {subscription_id.lower() for subscription_id in request.subscription_ids}
+            costs_by_reservation: dict[str, float] = defaultdict(float)
+            for cost_row in reservation_cost_rows:
+                reservation_id = str(cost_row.get("reservationId") or "").lower()
+                if reservation_id:
+                    costs_by_reservation[reservation_id] += _safe_number(cost_row.get("cost"))
             for reservation in reservation_rows:
                 applied_scopes = reservation.get("appliedScopes") or []
                 applies_to_selection = not applied_scopes or any(
@@ -192,9 +216,14 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
                 if not applies_to_selection:
                     continue
                 expiry_date = _parse_azure_datetime(reservation.get("expiryDate"))
+                reservation_id = str(reservation.get("reservationId") or "").lower()
                 rows.append(
                     {
+                        "recordType": "reservation_inventory",
                         **reservation,
+                        "incurredCost": round(costs_by_reservation[reservation_id], 6)
+                        if reservation_id in costs_by_reservation
+                        else None,
                         "remainingDays": (expiry_date - datetime.now(UTC)).days if expiry_date else None,
                     }
                 )

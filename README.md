@@ -114,7 +114,20 @@ The report catalog includes live equivalents of the layouts in `SAMPLE PowerBi o
 
 Select a tenant, one or more subscriptions, an optional date range, and a report domain, then choose **Run Live Report**. Running the report again refreshes it from Microsoft APIs using the current bearer token. PDF, PowerPoint, CSV, and SQLite exports are generated from that completed run and include collection time, scope, warnings, and source audit records.
 
-The browser renders these domains as operational dashboards modeled on the sample deck: current-run KPI tiles, dated cost trend lines, and ranked subscription, service, resource-group, storage, reservation, or quota breakdowns. The detailed evidence tables remain below each visual report for traceability.
+The browser renders a distinct diagram composition for each domain, modeled on the corresponding sample page:
+
+| Report | Diagrams and calculations |
+| --- | --- |
+| Tenant Spend Summary | One monthly actual-cost column series per selected subscription |
+| Cost Summary | Subscription cost columns and share donut, monthly charge-type mix, and meter-category ranking |
+| Reservation Savings | Incurred reservation cost over time and by reservation from Cost Management, plus Advisor savings by recommendation and impact |
+| Quota Summary | Current usage by region, utilization ranking, and counters that reached or exceeded their limits |
+| Expiring Reservations | Expiry cohorts, nearest expirations, matched incurred cost, and reserved-resource-type share |
+| Storage Costs | Paired cost and usage-quantity shares and resource rankings |
+| Resource Group Costs | Resource-group cost ranking, monthly cost columns, and cost share |
+| Subscription Cost Summary | Monthly 100% subscription mix, subscription share, meter-category ranking, and resource ranking |
+
+Each dashboard states its authenticated scope and exact aggregation logic. The detailed evidence tables remain below the diagrams for traceability.
 
 Results reflect the signed-in user's Azure RBAC. Cost reports commonly require Cost Management Reader; reservation inventory requires permission to read `Microsoft.Capacity/reservationOrders` and reservations; quota reports require Resource Graph read access and `Microsoft.Compute/locations/usages/read`. A denied source is reported as a warning and never replaced with sample or fabricated rows.
 
@@ -175,7 +188,7 @@ if ($actual -ne $expected) { throw "Installer checksum does not match." }
 
 The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports still require the signed-in user to have Azure CLI or browser OAuth authentication and Azure RBAC access.
 
-Version 1.1.0 adds the refreshable EA-style live report catalog, including tenant spend, detailed cost, reservation savings and expiry, compute quota, storage cost, resource-group cost, and subscription cost summaries. Exported values remain calculated only from the current live report run.
+Version 1.1.1 adds distinct sample-matched diagram compositions for every refreshable EA-style report and separates incurred reservation cost, potential savings, and expiry evidence. Exported values remain calculated only from the current live report run.
 
 ## Install on Windows
 
@@ -230,8 +243,8 @@ Generated application and installer files under `dist` are intentionally exclude
 When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -245,7 +258,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.1.0 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.1.1 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:

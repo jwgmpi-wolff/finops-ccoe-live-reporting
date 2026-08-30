@@ -196,6 +196,32 @@ button:hover {
   text-align: right;
 }
 
+.report-definition {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.8fr) minmax(18rem, 1.2fr);
+  border-bottom: 1px solid #cbd5e1;
+  background: #f0fdfa;
+}
+
+.report-definition p {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.65rem 1rem;
+  color: #334155;
+  font-size: 0.76rem;
+}
+
+.report-definition p + p {
+  border-left: 1px solid #99f6e4;
+}
+
+.report-definition strong {
+  color: #0f766e;
+  text-transform: uppercase;
+}
+
 .report-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -349,6 +375,184 @@ button:hover {
   color: #334155;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+.report-columns {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  height: 12rem;
+  padding-top: 0.4rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.report-column-item {
+  display: grid;
+  grid-template-rows: 1.2rem minmax(0, 1fr) 2rem;
+  flex: 1 0 2.7rem;
+  min-width: 0;
+  text-align: center;
+}
+
+.report-column-item > strong {
+  color: #475569;
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-column-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+  border-bottom: 1px solid #94a3b8;
+  background: repeating-linear-gradient(to top, transparent 0 24%, #e2e8f0 25%);
+}
+
+.report-column-bar {
+  display: block;
+  width: min(2.15rem, 76%);
+  background: #168aad;
+}
+
+.report-column-bar.savings {
+  background: #0f766e;
+}
+
+.report-column-bar.quota {
+  background: #d97706;
+}
+
+.report-column-bar.expiry {
+  background: #be123c;
+}
+
+.report-column-label {
+  padding-top: 0.3rem;
+  color: #64748b;
+  font-size: 0.6rem;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.report-donut-layout {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.8fr) minmax(10rem, 1.2fr);
+  align-items: center;
+  gap: 1rem;
+  min-height: 12rem;
+}
+
+.report-donut {
+  display: grid;
+  place-items: center;
+  width: min(10rem, 100%);
+  aspect-ratio: 1;
+  margin: auto;
+  border-radius: 50%;
+}
+
+.report-donut::before {
+  grid-area: 1 / 1;
+  width: 58%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #ffffff;
+  content: "";
+}
+
+.report-donut > span {
+  z-index: 1;
+  grid-area: 1 / 1;
+  max-width: 52%;
+  color: #0f172a;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.report-donut-legend {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.report-donut-legend > div {
+  display: grid;
+  grid-template-columns: 0.7rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  color: #475569;
+  font-size: 0.68rem;
+}
+
+.report-donut-legend > div > span:first-child {
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
+.report-donut-legend > div > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-share-chart {
+  display: grid;
+  gap: 0.55rem;
+  min-height: 9.5rem;
+}
+
+.report-share-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  color: #64748b;
+  font-size: 0.64rem;
+}
+
+.report-share-row > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-share-track {
+  display: flex;
+  height: 1.15rem;
+  background: #e2e8f0;
+}
+
+.report-share-track > span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.report-series-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  margin-top: 0.7rem;
+  color: #475569;
+  font-size: 0.65rem;
+}
+
+.report-series-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.report-series-legend i {
+  width: 0.6rem;
+  height: 0.6rem;
 }
 
 .chart-empty {
@@ -543,6 +747,15 @@ button:hover {
     text-align: left;
   }
 
+  .report-definition {
+    grid-template-columns: 1fr;
+  }
+
+  .report-definition p + p {
+    border-top: 1px solid #99f6e4;
+    border-left: 0;
+  }
+
   .report-kpis,
   .report-chart-grid {
     grid-template-columns: 1fr 1fr;
@@ -568,6 +781,14 @@ button:hover {
   .report-bar-track {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+
+  .report-donut-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .report-donut {
+    width: 8.5rem;
   }
 
   .dialog-fields {

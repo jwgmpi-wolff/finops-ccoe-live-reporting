@@ -870,6 +870,238 @@ function renderRankedBars(panel, entries, valueFormatter = formatCurrency, tone 
   panel.appendChild(list);
 }
 
+function renderColumns(panel, entries, valueFormatter = formatCurrency, tone = "cost") {
+  const values = [...entries].sort((left, right) => left.label.localeCompare(right.label)).slice(-14);
+  if (!values.length) {
+    const empty = document.createElement("div");
+    empty.className = "chart-empty";
+    empty.textContent = "No values were returned for this diagram.";
+    panel.appendChild(empty);
+    return;
+  }
+  const maxValue = Math.max(...values.map((entry) => entry.value), 1);
+  const chart = document.createElement("div");
+  chart.className = "report-columns";
+  values.forEach((entry) => {
+    const item = document.createElement("div");
+    item.className = "report-column-item";
+    const value = document.createElement("strong");
+    value.textContent = valueFormatter(entry.value);
+    const track = document.createElement("span");
+    track.className = "report-column-track";
+    const bar = document.createElement("span");
+    bar.className = `report-column-bar ${tone}`;
+    bar.style.height = `${Math.max((entry.value / maxValue) * 100, entry.value > 0 ? 3 : 0)}%`;
+    track.appendChild(bar);
+    const label = document.createElement("span");
+    label.className = "report-column-label";
+    label.textContent = entry.label.slice(0, 12);
+    label.title = entry.label;
+    item.append(value, track, label);
+    chart.appendChild(item);
+  });
+  panel.appendChild(chart);
+}
+
+function renderDonut(panel, entries, valueFormatter = formatCurrency) {
+  const colors = ["#168aad", "#184e77", "#52b788", "#f4a261", "#9b5de5", "#e76f51"];
+  const ranked = [...entries].filter((entry) => entry.value > 0).sort((left, right) => right.value - left.value).slice(0, 6);
+  const total = ranked.reduce((sum, entry) => sum + entry.value, 0);
+  if (!total) {
+    const empty = document.createElement("div");
+    empty.className = "chart-empty";
+    empty.textContent = "No values were returned for this share diagram.";
+    panel.appendChild(empty);
+    return;
+  }
+  let cursor = 0;
+  const stops = ranked.map((entry, index) => {
+    const start = cursor;
+    cursor += (entry.value / total) * 100;
+    return `${colors[index]} ${start}% ${cursor}%`;
+  });
+  const layout = document.createElement("div");
+  layout.className = "report-donut-layout";
+  const donut = document.createElement("div");
+  donut.className = "report-donut";
+  donut.style.background = `conic-gradient(${stops.join(", ")})`;
+  donut.setAttribute("role", "img");
+  donut.setAttribute("aria-label", ranked.map((entry) => `${entry.label} ${valueFormatter(entry.value)}`).join(", "));
+  const center = document.createElement("span");
+  center.textContent = valueFormatter(total);
+  donut.appendChild(center);
+  const legend = document.createElement("div");
+  legend.className = "report-donut-legend";
+  ranked.forEach((entry, index) => {
+    const row = document.createElement("div");
+    const swatch = document.createElement("span");
+    swatch.style.background = colors[index];
+    const label = document.createElement("span");
+    label.textContent = entry.label;
+    const value = document.createElement("strong");
+    value.textContent = `${((entry.value / total) * 100).toFixed(1)}%`;
+    row.append(swatch, label, value);
+    legend.appendChild(row);
+  });
+  layout.append(donut, legend);
+  panel.appendChild(layout);
+}
+
+function renderShareBars(panel, rows, categoryField, seriesField) {
+  const categories = [...new Set(rows.map((row) => String(row?.[categoryField] || "Unspecified")))].sort().slice(-12);
+  const series = groupTotals(rows, seriesField).sort((left, right) => right.value - left.value).slice(0, 5).map((entry) => entry.label);
+  const colors = ["#168aad", "#184e77", "#52b788", "#f4a261", "#9b5de5"];
+  const chart = document.createElement("div");
+  chart.className = "report-share-chart";
+  categories.forEach((category) => {
+    const categoryRows = rows.filter((row) => String(row?.[categoryField] || "Unspecified") === category);
+    const totals = new Map(groupTotals(categoryRows, seriesField).map((entry) => [entry.label, entry.value]));
+    const categoryTotal = [...totals.values()].reduce((sum, value) => sum + value, 0);
+    const row = document.createElement("div");
+    row.className = "report-share-row";
+    const label = document.createElement("span");
+    label.textContent = category.slice(0, 12);
+    label.title = category;
+    const track = document.createElement("span");
+    track.className = "report-share-track";
+    series.forEach((seriesLabel, index) => {
+      const segment = document.createElement("span");
+      segment.style.width = `${categoryTotal ? ((totals.get(seriesLabel) || 0) / categoryTotal) * 100 : 0}%`;
+      segment.style.background = colors[index];
+      segment.title = `${seriesLabel}: ${formatCurrency(totals.get(seriesLabel) || 0)}`;
+      track.appendChild(segment);
+    });
+    row.append(label, track);
+    chart.appendChild(row);
+  });
+  const legend = document.createElement("div");
+  legend.className = "report-series-legend";
+  series.forEach((label, index) => {
+    const item = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.style.background = colors[index];
+    item.append(swatch, document.createTextNode(label));
+    legend.appendChild(item);
+  });
+  panel.append(chart, legend);
+}
+
+function appendChart(charts, title, subtitle, render) {
+  const panel = createChartPanel(title, subtitle);
+  render(panel);
+  charts.appendChild(panel);
+}
+
+const reportDiagramSpecs = {
+  tenant_spend_summary: {
+    scope: "Selected subscriptions in the authenticated tenant",
+    logic: "Sum actual pre-tax cost by usage date, then compare each subscription as a separate monthly series.",
+  },
+  cost_summary: {
+    scope: "Selected subscriptions and date range",
+    logic: "Sum actual cost and usage by subscription, charge type, meter category, and usage date.",
+  },
+  reservation_savings: {
+    scope: "Azure Advisor recommendations in selected subscriptions",
+    logic: "Show incurred reservation cost from Cost Management separately from annual savings estimates returned by Azure Advisor.",
+  },
+  quota_summary: {
+    scope: "Compute regions discovered in selected subscriptions",
+    logic: "Compare current regional Compute usage with the returned limit; exceeded means current usage is at least the limit.",
+  },
+  expiring_reservations: {
+    scope: "Reservations that apply to the selected subscriptions",
+    logic: "Calculate remaining calendar days from live expiry dates; join incurred cost only when Cost Management returns the same reservation ID.",
+  },
+  storage_costs: {
+    scope: "Storage-classified cost rows in selected subscriptions",
+    logic: "Sum actual cost and usage quantity by storage resource and usage date.",
+  },
+  resource_group_costs: {
+    scope: "Resource groups in selected subscriptions",
+    logic: "Sum actual pre-tax cost by resource group and usage date.",
+  },
+  subscription_cost_summary: {
+    scope: "Selected subscriptions",
+    logic: "Calculate monthly subscription cost share, subscription totals, meter-category totals, and resource-level cost from live rows.",
+  },
+};
+
+function renderDomainDiagrams(data, charts) {
+  const rows = data.rows;
+  if (data.domain === "tenant_spend_summary") {
+    const subscriptions = groupTotals(rows, "subscriptionId").sort((left, right) => right.value - left.value).slice(0, 4);
+    subscriptions.forEach((subscription) => appendChart(
+      charts,
+      `${subscription.label} monthly spend`,
+      "Actual cost by usage date",
+      (panel) => renderColumns(panel, groupTotals(rows.filter((row) => String(row.subscriptionId || "Unspecified") === subscription.label), "usageDate")),
+    ));
+    return;
+  }
+
+  if (data.domain === "cost_summary") {
+    appendChart(charts, "Cost by subscription", "Absolute cost comparison", (panel) => renderColumns(panel, groupTotals(rows, "subscriptionId")));
+    appendChart(charts, "Subscription share", "Percent of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "subscriptionId")));
+    appendChart(charts, "Monthly charge-type mix", "100% cost share by purchase or usage charge", (panel) => renderShareBars(panel, rows, "usageDate", "chargeType"));
+    appendChart(charts, "Cost by meter category", "Ranked service meter categories", (panel) => renderRankedBars(panel, groupTotals(rows, "meterCategory")));
+    return;
+  }
+
+  if (data.domain === "reservation_savings") {
+    const incurredCosts = rows.filter((row) => row.recordType === "reservation_cost");
+    const recommendations = rows.filter((row) => row.recordType === "advisor_recommendation");
+    appendChart(charts, "Reservation cost incurred", "Actual reservation cost by usage date", (panel) => renderColumns(panel, groupTotals(incurredCosts, "usageDate")));
+    appendChart(charts, "Cost by reservation", "Actual cost returned by Cost Management", (panel) => renderRankedBars(panel, groupTotals(incurredCosts, "reservationName")));
+    appendChart(charts, "Savings by recommendation", "Annual savings estimate returned by Azure Advisor", (panel) => renderRankedBars(panel, groupTotals(recommendations, "recommendationType", "savingsEstimate"), formatCurrency, "savings"));
+    appendChart(charts, "Savings by impact", "Advisor impact distribution weighted by savings", (panel) => renderDonut(panel, groupTotals(recommendations, "impact", "savingsEstimate")));
+    return;
+  }
+
+  if (data.domain === "quota_summary") {
+    appendChart(charts, "Current usage by region", "Sum of returned Compute usage counters", (panel) => renderColumns(panel, groupTotals(rows, "region", "currentValue"), formatCompactNumber, "quota"));
+    appendChart(charts, "Highest quota utilization", "Current value divided by limit", (panel) => renderRankedBars(panel, groupTotals(rows, "quotaName", "utilizationPercent"), (value) => `${value.toFixed(1)}%`, "quota"));
+    const exceeded = rows.filter((row) => numericValue(row.limit) > 0 && numericValue(row.currentValue) >= numericValue(row.limit));
+    appendChart(charts, "Reached or exceeded limits", "Only counters at 100% utilization or higher", (panel) => renderRankedBars(panel, groupTotals(exceeded, "quotaName", "currentValue"), formatCompactNumber, "expiry"));
+    return;
+  }
+
+  if (data.domain === "expiring_reservations") {
+    const cohorts = rows.map((row) => {
+      const days = numericValue(row.remainingDays);
+      const expiryCohort = days < 0 ? "Expired" : days <= 30 ? "0-30 days" : days <= 90 ? "31-90 days" : days <= 365 ? "91-365 days" : "Over 365 days";
+      return { ...row, expiryCohort, reservationCount: 1 };
+    });
+    appendChart(charts, "Reservations by expiry cohort", "Count grouped by calculated remaining days", (panel) => renderColumns(panel, groupTotals(cohorts, "expiryCohort", "reservationCount"), formatCompactNumber, "expiry"));
+    appendChart(charts, "Nearest reservation expirations", "Remaining days by reservation", (panel) => renderRankedBars(panel, rows.map((row) => ({ label: row.displayName || row.reservationId || "Unnamed reservation", value: Math.max(numericValue(row.remainingDays), 0) })), (value) => `${formatCompactNumber(value)} days`, "expiry"));
+    appendChart(charts, "Matched incurred cost", "Cost is shown only where reservation IDs matched across live sources", (panel) => renderRankedBars(panel, rows.filter((row) => row.incurredCost !== null && row.incurredCost !== undefined).map((row) => ({ label: row.displayName || row.reservationId || "Unnamed reservation", value: numericValue(row.incurredCost) }))));
+    appendChart(charts, "Reservation resource types", "Share of live reservation inventory", (panel) => renderDonut(panel, groupTotals(rows.map((row) => ({ ...row, reservationCount: 1 })), "reservedResourceType", "reservationCount"), formatCompactNumber));
+    return;
+  }
+
+  if (data.domain === "storage_costs") {
+    appendChart(charts, "Storage cost share", "Actual cost by storage resource", (panel) => renderDonut(panel, groupTotals(rows, "resourceName")));
+    appendChart(charts, "Storage usage share", "Usage quantity by storage resource", (panel) => renderDonut(panel, groupTotals(rows, "resourceName", "usageQuantity"), formatCompactNumber));
+    appendChart(charts, "Storage cost by resource", "Top storage resources", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName")));
+    appendChart(charts, "Storage usage by resource", "Top storage resources by quantity", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName", "usageQuantity"), formatCompactNumber));
+    return;
+  }
+
+  if (data.domain === "resource_group_costs") {
+    appendChart(charts, "Cost by resource group", "Ranked actual cost", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceGroup")));
+    appendChart(charts, "Monthly resource-group cost", "Actual cost by usage date", (panel) => renderColumns(panel, groupTotals(rows, "usageDate")));
+    appendChart(charts, "Resource-group cost mix", "Share of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "resourceGroup")));
+    return;
+  }
+
+  if (data.domain === "subscription_cost_summary") {
+    appendChart(charts, "Monthly subscription mix", "100% monthly cost share", (panel) => renderShareBars(panel, rows, "usageDate", "subscriptionId"));
+    appendChart(charts, "Cost by subscription", "Percent of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "subscriptionId")));
+    appendChart(charts, "Cost by meter category", "Ranked meter categories", (panel) => renderRankedBars(panel, groupTotals(rows, "meterCategory")));
+    appendChart(charts, "Cost by resource", "Ranked resource totals", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName")));
+  }
+}
+
 function buildVisualReport(data) {
   if (!visualReportDomains.has(data.domain) || !Array.isArray(data.rows)) {
     return null;
@@ -891,6 +1123,16 @@ function buildVisualReport(data) {
   heading.append(titleGroup, freshness);
   dashboard.appendChild(heading);
 
+  const spec = reportDiagramSpecs[data.domain];
+  const definition = document.createElement("div");
+  definition.className = "report-definition";
+  const scope = document.createElement("p");
+  scope.innerHTML = `<strong>Scope</strong><span>${escapeHtml(spec.scope)}</span>`;
+  const logic = document.createElement("p");
+  logic.innerHTML = `<strong>Logic</strong><span>${escapeHtml(spec.logic)}</span>`;
+  definition.append(scope, logic);
+  dashboard.appendChild(definition);
+
   const kpis = document.createElement("div");
   kpis.className = "report-kpis";
   const totalCost = data.rows.reduce((sum, row) => sum + numericValue(row.cost || row.savingsEstimate), 0);
@@ -901,7 +1143,10 @@ function buildVisualReport(data) {
     const remainingDays = data.rows.map((row) => numericValue(row.remainingDays)).filter((value) => value >= 0);
     addKpi(kpis, "Next expiration", remainingDays.length ? `${Math.min(...remainingDays)} days` : "Not available");
   } else {
-    addKpi(kpis, data.domain === "reservation_savings" ? "Potential savings" : "Cost represented", formatCurrency(totalCost));
+    const metricTotal = data.domain === "reservation_savings"
+      ? data.rows.filter((row) => row.recordType === "advisor_recommendation").reduce((sum, row) => sum + numericValue(row.savingsEstimate), 0)
+      : totalCost;
+    addKpi(kpis, data.domain === "reservation_savings" ? "Potential savings" : "Cost represented", formatCurrency(metricTotal));
   }
   addKpi(kpis, "Live records", formatCompactNumber(data.rows.length));
   addKpi(kpis, "Data quality", `${numericValue(data.data_quality_score).toFixed(1)}%`);
@@ -910,63 +1155,7 @@ function buildVisualReport(data) {
 
   const charts = document.createElement("div");
   charts.className = "report-chart-grid";
-  const datedRows = data.rows.filter((row) => row.usageDate);
-  if (datedRows.length) {
-    const trendPanel = createChartPanel("Cost trend", "Actual cost returned by Azure Cost Management for the selected period");
-    const trendSeriesField = {
-      tenant_spend_summary: "subscriptionId",
-      subscription_cost_summary: "subscriptionId",
-      resource_group_costs: "resourceGroup",
-      storage_costs: "resourceName",
-      cost_summary: "serviceName",
-    }[data.domain];
-    if (trendSeriesField && new Set(datedRows.map((row) => row[trendSeriesField])).size > 1) {
-      renderMultiLineChart(trendPanel, buildTrendSeries(datedRows, trendSeriesField));
-    } else {
-      renderLineChart(trendPanel, groupTotals(datedRows, "usageDate"));
-    }
-    charts.appendChild(trendPanel);
-  }
-
-  let breakdownField = "serviceName";
-  let breakdownTitle = "Cost by service";
-  let valueField = "cost";
-  let formatter = formatCurrency;
-  let tone = "cost";
-  if (data.domain === "resource_group_costs") {
-    breakdownField = "resourceGroup";
-    breakdownTitle = "Cost by resource group";
-  } else if (data.domain === "subscription_cost_summary" || data.domain === "tenant_spend_summary") {
-    breakdownField = "subscriptionId";
-    breakdownTitle = "Cost by subscription";
-  } else if (data.domain === "storage_costs") {
-    breakdownField = "resourceName";
-    breakdownTitle = "Storage cost by resource";
-  } else if (data.domain === "reservation_savings") {
-    breakdownField = "recommendationType";
-    breakdownTitle = "Reservation savings opportunities";
-    valueField = "savingsEstimate";
-    tone = "savings";
-  } else if (data.domain === "quota_summary") {
-    breakdownField = "quotaName";
-    breakdownTitle = "Highest quota utilization";
-    valueField = "utilizationPercent";
-    formatter = (value) => `${value.toFixed(1)}%`;
-    tone = "quota";
-  } else if (data.domain === "expiring_reservations") {
-    breakdownField = "displayName";
-    breakdownTitle = "Reservation term remaining";
-    valueField = "remainingDays";
-    formatter = (value) => `${formatCompactNumber(value)} days`;
-    tone = "expiry";
-  }
-
-  const breakdown = groupTotals(data.rows, breakdownField, valueField);
-  if (breakdown.some((entry) => entry.label !== "Unspecified" || entry.value !== 0)) {
-    const breakdownPanel = createChartPanel(breakdownTitle, "Ranked from current authenticated tenant results");
-    renderRankedBars(breakdownPanel, breakdown, formatter, tone);
-    charts.appendChild(breakdownPanel);
-  }
+  renderDomainDiagrams(data, charts);
   dashboard.appendChild(charts);
   return dashboard;
 }

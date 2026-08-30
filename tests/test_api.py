@@ -22,7 +22,7 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.1.0"
+    assert response.json()["version"] == "1.1.1"
 
 
 def test_cli_login_uses_hidden_browser_flow(monkeypatch):
@@ -847,6 +847,28 @@ def test_quota_summary_uses_live_compute_usage_and_calculates_utilization(monkey
 
 
 def test_expiring_reservations_filters_to_selected_scope_and_calculates_days(monkeypatch):
+    async def fake_query_reservation_costs(self, subscription_id, start_date=None, end_date=None):
+        return [
+            {
+                "recordType": "reservation_cost",
+                "subscriptionId": subscription_id,
+                "reservationId": "selected",
+                "cost": 125.0,
+            },
+            {
+                "recordType": "reservation_cost",
+                "subscriptionId": subscription_id,
+                "reservationId": "selected-prefix-only",
+                "cost": 999.0,
+            },
+        ], SourceAudit(
+            source="Azure Cost Management (Reservations)",
+            endpoint="https://management.azure.com/live-reservation-costs",
+            duration_ms=1,
+            row_count=2,
+            executed_at_utc=datetime.now(UTC),
+        )
+
     async def fake_list_reservations(self):
         return [
             {
@@ -867,6 +889,7 @@ def test_expiring_reservations_filters_to_selected_scope_and_calculates_days(mon
             executed_at_utc=datetime.now(UTC),
         )
 
+    monkeypatch.setattr(AzureLiveClient, "query_reservation_costs", fake_query_reservation_costs)
     monkeypatch.setattr(AzureLiveClient, "list_reservations", fake_list_reservations)
     report = asyncio.run(
         build_report(
@@ -880,4 +903,62 @@ def test_expiring_reservations_filters_to_selected_scope_and_calculates_days(mon
     )
 
     assert [row["reservationId"] for row in report.rows] == ["selected"]
+    assert report.rows[0]["recordType"] == "reservation_inventory"
+    assert report.rows[0]["incurredCost"] == 125.0
     assert isinstance(report.rows[0]["remainingDays"], int)
+
+
+def test_reservation_savings_keeps_cost_and_advisor_evidence_distinct(monkeypatch):
+    async def fake_query_reservation_costs(self, subscription_id, start_date=None, end_date=None):
+        return [{
+            "recordType": "reservation_cost",
+            "subscriptionId": subscription_id,
+            "reservationId": "ri-1",
+            "reservationName": "Production compute",
+            "cost": 75.0,
+        }], SourceAudit(
+            source="Azure Cost Management (Reservations)",
+            endpoint="https://management.azure.com/live-reservation-costs",
+            duration_ms=1,
+            row_count=1,
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    async def fake_list_advisor_recommendations(self, subscription_id):
+        return [{
+            "properties": {
+                "category": "Cost",
+                "impact": "High",
+                "shortDescription": {
+                    "problem": "Purchase reservation for steady compute",
+                    "solution": "Use a 1-year reservation",
+                },
+                "extendedProperties": {"annualSavingsAmount": 240.0},
+            }
+        }], SourceAudit(
+            source="Azure Advisor",
+            endpoint="https://management.azure.com/live-advisor",
+            duration_ms=1,
+            row_count=1,
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(AzureLiveClient, "query_reservation_costs", fake_query_reservation_costs)
+    monkeypatch.setattr(AzureLiveClient, "list_advisor_recommendations", fake_list_advisor_recommendations)
+    report = asyncio.run(
+        build_report(
+            ReportDomain.reservation_savings,
+            __import__("app.models", fromlist=["ReportRequest"]).ReportRequest(
+                tenant_id="tenant-a",
+                subscription_ids=["sub-a"],
+            ),
+            bearer_token="token",
+        )
+    )
+
+    assert {row["recordType"] for row in report.rows} == {
+        "advisor_recommendation",
+        "reservation_cost",
+    }
+    assert sum(row.get("cost", 0) for row in report.rows) == 75.0
+    assert sum(float(row.get("savingsEstimate", 0)) for row in report.rows) == 240.0
