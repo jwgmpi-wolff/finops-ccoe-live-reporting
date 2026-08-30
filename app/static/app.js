@@ -759,6 +759,21 @@ const visualReportDomains = new Set([
   "tenant_spend_summary",
   "cost_summary",
   "budget_forecasting",
+  "spend_visibility",
+  "optimization",
+  "reservations",
+  "savings_plans",
+  "savings_potential",
+  "reservations_potential",
+  "anomaly_detection",
+  "governance",
+  "tag_compliance",
+  "chargeback_showback",
+  "architecture_efficiency",
+  "sustainability",
+  "ai_finops",
+  "ai_token_tracking",
+  "idle_waste_detection",
   "reservation_savings",
   "quota_summary",
   "expiring_reservations",
@@ -795,6 +810,26 @@ function groupTotals(rows, keyField, valueField = "cost") {
     totals.set(key, (totals.get(key) || 0) + numericValue(row?.[valueField]));
   }
   return Array.from(totals, ([label, value]) => ({ label, value }));
+}
+
+function groupCounts(rows, keyField) {
+  const counts = new Map();
+  for (const row of rows) {
+    const key = String(row?.[keyField] || "Unspecified");
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return Array.from(counts, ([label, value]) => ({ label, value }));
+}
+
+function tagKeyCounts(rows) {
+  const counts = new Map();
+  for (const row of rows) {
+    if (!row?.tags || Array.isArray(row.tags) || typeof row.tags !== "object") {
+      continue;
+    }
+    Object.keys(row.tags).forEach((key) => counts.set(key, (counts.get(key) || 0) + 1));
+  }
+  return Array.from(counts, ([label, value]) => ({ label, value }));
 }
 
 function addKpi(container, label, value, detail = "") {
@@ -1184,6 +1219,13 @@ function renderDonut(panel, entries, valueFormatter = formatCurrency) {
 function renderShareBars(panel, rows, categoryField, seriesField) {
   const categories = [...new Set(rows.map((row) => String(row?.[categoryField] || "Unspecified")))].sort().slice(-12);
   const series = groupTotals(rows, seriesField).sort((left, right) => right.value - left.value).slice(0, 5).map((entry) => entry.label);
+  if (!categories.length || !series.length) {
+    const empty = document.createElement("div");
+    empty.className = "chart-empty";
+    empty.textContent = "No values were returned for this share diagram.";
+    panel.appendChild(empty);
+    return;
+  }
   const colors = ["#168aad", "#184e77", "#52b788", "#f4a261", "#9b5de5"];
   const chart = document.createElement("div");
   chart.className = "report-share-chart";
@@ -1238,6 +1280,66 @@ const reportDiagramSpecs = {
   budget_forecasting: {
     scope: "Selected subscriptions in the authenticated tenant",
     logic: "Summarize the current Cost Management response by subscription, service, and resource group as a baseline for budget planning.",
+  },
+  spend_visibility: {
+    scope: "Current Cost Management response for selected subscriptions",
+    logic: "Group returned cost by subscription, service, and resource group without synthesizing missing time-series values.",
+  },
+  optimization: {
+    scope: "Azure Advisor recommendations in selected subscriptions",
+    logic: "Summarize recommendation counts and reported annual savings estimates by recommendation, impact, and category.",
+  },
+  reservations: {
+    scope: "Current Cost Management response for selected subscriptions",
+    logic: "Show the returned cost baseline by subscription, service, and resource group for reservation review.",
+  },
+  savings_plans: {
+    scope: "Current Cost Management response for selected subscriptions",
+    logic: "Show the returned cost baseline by subscription, service, and resource group for savings-plan review.",
+  },
+  savings_potential: {
+    scope: "Cost-related Azure Advisor recommendations in selected subscriptions",
+    logic: "Summarize only Advisor recommendations matched to cost and savings keywords, using reported annual savings estimates where available.",
+  },
+  reservations_potential: {
+    scope: "Commitment-related Azure Advisor recommendations in selected subscriptions",
+    logic: "Summarize only Advisor recommendations matched to reservation, savings-plan, or commitment keywords.",
+  },
+  anomaly_detection: {
+    scope: "Resource inventory in selected subscriptions",
+    logic: "Show inventory coverage available for anomaly analysis; the current source does not return a measured anomaly signal.",
+  },
+  governance: {
+    scope: "Resource inventory and Azure Policy evidence in selected subscriptions",
+    logic: "Count returned policy states and inventory records by policy, resource type, and region.",
+  },
+  tag_compliance: {
+    scope: "Resource tags and Azure Policy evidence in selected subscriptions",
+    logic: "Count observed tag coverage, tag keys, policy states, and resource types from live records.",
+  },
+  chargeback_showback: {
+    scope: "Current Cost Management response for selected subscriptions",
+    logic: "Group returned cost by subscription, service, and resource group for allocation review.",
+  },
+  architecture_efficiency: {
+    scope: "Azure Advisor recommendations in selected subscriptions",
+    logic: "Summarize recommendation counts and reported annual savings estimates as architecture review evidence.",
+  },
+  sustainability: {
+    scope: "Resource inventory in selected subscriptions",
+    logic: "Show inventory distribution relevant to sustainability review; the current source does not return measured emissions.",
+  },
+  ai_finops: {
+    scope: "AI usage and cost evidence plus AI resource inventory in selected subscriptions",
+    logic: "Summarize returned AI cost, usage, estimated token units, and inventory without treating non-token meters as tokens.",
+  },
+  ai_token_tracking: {
+    scope: "AI meters returned for selected subscriptions and date range",
+    logic: "Chart service-level totals from normalized AI usage; estimated token units include only meters identified as token meters.",
+  },
+  idle_waste_detection: {
+    scope: "Azure Advisor recommendations in selected subscriptions",
+    logic: "Summarize recommendation counts and reported annual savings estimates as idle-waste review evidence.",
   },
   reservation_savings: {
     scope: "Azure Cost Management and Advisor evidence in selected subscriptions",
@@ -1324,6 +1426,70 @@ function renderDomainDiagrams(data, charts) {
       ...entry,
       onActivate: () => openDrilldown("resourceGroup", entry.label, rows, entry.label),
     }))));
+    return;
+  }
+
+  if (["spend_visibility", "reservations", "savings_plans", "chargeback_showback"].includes(data.domain)) {
+    appendChart(charts, "Cost by subscription", "Current scoped cost", (panel) => renderColumns(panel, groupTotals(rows, "subscriptionId")));
+    appendChart(charts, "Cost by service", "Returned cost grouped by Azure service", (panel) => renderRankedBars(panel, groupTotals(rows, "serviceName")));
+    appendChart(charts, "Cost by resource group", "Returned cost grouped by resource group", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceGroup")));
+    appendChart(charts, "Service cost share", "Share of current scoped cost", (panel) => renderDonut(panel, groupTotals(rows, "serviceName")));
+    return;
+  }
+
+  if (["optimization", "savings_potential", "reservations_potential", "architecture_efficiency", "idle_waste_detection"].includes(data.domain)) {
+    appendChart(charts, "Savings by recommendation", "Annual savings estimate reported by Azure Advisor", (panel) => renderRankedBars(panel, groupTotals(rows, "recommendationType", "savingsEstimate")));
+    appendChart(charts, "Savings by impact", "Advisor-reported savings grouped by impact", (panel) => renderDonut(panel, groupTotals(rows, "impact", "savingsEstimate")));
+    appendChart(charts, "Recommendations by category", "Count of returned Advisor recommendations", (panel) => renderColumns(panel, groupCounts(rows, "category"), formatCompactNumber, "quota"));
+    appendChart(charts, "Recommendations by subscription", "Count across selected subscriptions", (panel) => renderRankedBars(panel, groupCounts(rows, "subscriptionId"), formatCompactNumber, "quota"));
+    return;
+  }
+
+  if (["anomaly_detection", "sustainability"].includes(data.domain)) {
+    const inventory = rows.filter((row) => row.resourceType);
+    appendChart(charts, "Resources by type", "Inventory coverage returned for analysis", (panel) => renderRankedBars(panel, groupCounts(inventory, "resourceType"), formatCompactNumber, "quota"));
+    appendChart(charts, "Resources by region", "Inventory distribution by Azure region", (panel) => renderDonut(panel, groupCounts(inventory, "region"), formatCompactNumber));
+    appendChart(charts, "Resources by subscription", "Inventory count across selected subscriptions", (panel) => renderColumns(panel, groupCounts(inventory, "subscriptionId"), formatCompactNumber, "quota"));
+    return;
+  }
+
+  if (data.domain === "governance") {
+    const inventory = rows.filter((row) => row.resourceType);
+    const policy = rows.filter((row) => row.complianceState || row.policyDefinitionName);
+    appendChart(charts, "Policy evidence by state", "Count of returned Azure Policy records", (panel) => renderDonut(panel, groupCounts(policy, "complianceState"), formatCompactNumber));
+    appendChart(charts, "Policy evidence by definition", "Most frequently returned policy definitions", (panel) => renderRankedBars(panel, groupCounts(policy, "policyDefinitionName"), formatCompactNumber, "quota"));
+    appendChart(charts, "Resources by type", "Resource inventory included in the governance scope", (panel) => renderRankedBars(panel, groupCounts(inventory, "resourceType"), formatCompactNumber, "quota"));
+    appendChart(charts, "Resources by region", "Inventory distribution by Azure region", (panel) => renderColumns(panel, groupCounts(inventory, "region"), formatCompactNumber, "quota"));
+    return;
+  }
+
+  if (data.domain === "tag_compliance") {
+    const inventory = rows.filter((row) => row.resourceType);
+    const policy = rows.filter((row) => row.complianceState);
+    const coverage = inventory.map((row) => ({ tagCoverage: row.tags && typeof row.tags === "object" && Object.keys(row.tags).length ? "Tagged" : "Untagged" }));
+    appendChart(charts, "Tag coverage", "Count of resources with and without observed tags", (panel) => renderDonut(panel, groupCounts(coverage, "tagCoverage"), formatCompactNumber));
+    appendChart(charts, "Most common tag keys", "Number of resources carrying each observed key", (panel) => renderRankedBars(panel, tagKeyCounts(inventory), formatCompactNumber, "quota"));
+    appendChart(charts, "Policy evidence by state", "Count of returned Azure Policy records", (panel) => renderColumns(panel, groupCounts(policy, "complianceState"), formatCompactNumber, "quota"));
+    appendChart(charts, "Resources by type", "Inventory included in tag analysis", (panel) => renderRankedBars(panel, groupCounts(inventory, "resourceType"), formatCompactNumber, "quota"));
+    return;
+  }
+
+  if (data.domain === "ai_finops") {
+    const usage = Array.isArray(data.ai_token_tracking) ? data.ai_token_tracking : [];
+    const inventory = rows.filter((row) => row.resourceType);
+    appendChart(charts, "AI cost by service", "Cost returned for AI meters", (panel) => renderRankedBars(panel, groupTotals(usage, "serviceName")));
+    appendChart(charts, "Estimated token units by service", "Usage from meters identified as token meters", (panel) => renderRankedBars(panel, groupTotals(usage, "serviceName", "estimatedTokenUnits"), formatCompactNumber, "quota"));
+    appendChart(charts, "AI usage by meter", "Returned usage quantity by meter", (panel) => renderRankedBars(panel, groupTotals(usage, "meterName", "usageQuantity"), formatCompactNumber, "quota"));
+    appendChart(charts, "AI resources by type", "Resource inventory in the AI FinOps scope", (panel) => renderDonut(panel, groupCounts(inventory, "resourceType"), formatCompactNumber));
+    return;
+  }
+
+  if (data.domain === "ai_token_tracking") {
+    const serviceRows = rows.filter((row) => row.serviceScope !== "All AI Services");
+    appendChart(charts, "AI cost by service", "Normalized total cost", (panel) => renderRankedBars(panel, groupTotals(serviceRows, "serviceScope", "totalCost")));
+    appendChart(charts, "Estimated token units by service", "Totals from identified token meters", (panel) => renderRankedBars(panel, groupTotals(serviceRows, "serviceScope", "totalEstimatedTokenUnits"), formatCompactNumber, "quota"));
+    appendChart(charts, "Usage quantity by service", "Normalized total usage quantity", (panel) => renderRankedBars(panel, groupTotals(serviceRows, "serviceScope", "totalUsageQuantity"), formatCompactNumber, "quota"));
+    appendChart(charts, "Meter records by service", "Count of normalized source records", (panel) => renderColumns(panel, groupTotals(serviceRows, "serviceScope", "records"), formatCompactNumber, "quota"));
     return;
   }
 
@@ -1473,18 +1639,31 @@ function buildVisualReport(data) {
 
   const kpis = document.createElement("div");
   kpis.className = "report-kpis";
-  const totalCost = data.rows.reduce((sum, row) => sum + numericValue(row.cost || row.savingsEstimate), 0);
+  const totalCost = data.rows.reduce((sum, row) => sum + numericValue(row.cost ?? row.savingsEstimate), 0);
   if (data.domain === "quota_summary") {
     const peakUtilization = Math.max(...data.rows.map((row) => numericValue(row.utilizationPercent)), 0);
     addKpi(kpis, "Peak utilization", `${peakUtilization.toFixed(1)}%`);
   } else if (data.domain === "expiring_reservations") {
     const remainingDays = data.rows.map((row) => numericValue(row.remainingDays)).filter((value) => value >= 0);
     addKpi(kpis, "Next expiration", remainingDays.length ? `${Math.min(...remainingDays)} days` : "Not available");
+  } else if (["anomaly_detection", "governance", "tag_compliance", "sustainability"].includes(data.domain)) {
+    addKpi(kpis, "Evidence records", formatCompactNumber(data.rows.length));
+  } else if (data.domain === "ai_finops") {
+    const aiCost = (data.ai_token_tracking || []).reduce((sum, row) => sum + numericValue(row.cost), 0);
+    addKpi(kpis, "AI cost represented", formatCurrency(aiCost));
+  } else if (data.domain === "ai_token_tracking") {
+    const aggregate = data.rows.find((row) => row.serviceScope === "All AI Services");
+    addKpi(kpis, "AI cost represented", formatCurrency(aggregate ? numericValue(aggregate.totalCost) : data.rows.reduce((sum, row) => sum + numericValue(row.totalCost), 0)));
   } else {
-    const metricTotal = data.domain === "reservation_savings"
-      ? data.rows.filter((row) => row.recordType === "advisor_recommendation").reduce((sum, row) => sum + numericValue(row.savingsEstimate), 0)
+    const advisorDomains = ["reservation_savings", "optimization", "savings_potential", "reservations_potential", "architecture_efficiency", "idle_waste_detection"];
+    const isAdvisorReport = advisorDomains.includes(data.domain);
+    const metricRows = data.domain === "reservation_savings"
+      ? data.rows.filter((row) => row.recordType === "advisor_recommendation")
+      : data.rows;
+    const metricTotal = isAdvisorReport
+      ? metricRows.reduce((sum, row) => sum + numericValue(row.savingsEstimate), 0)
       : totalCost;
-    addKpi(kpis, data.domain === "reservation_savings" ? "Potential savings" : "Cost represented", formatCurrency(metricTotal));
+    addKpi(kpis, isAdvisorReport ? "Potential savings" : "Cost represented", formatCurrency(metricTotal));
   }
   addKpi(kpis, "Live records", formatCompactNumber(data.rows.length));
   addKpi(kpis, "Data quality", `${numericValue(data.data_quality_score).toFixed(1)}%`);

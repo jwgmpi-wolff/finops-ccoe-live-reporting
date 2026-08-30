@@ -38,6 +38,14 @@ def test_tenant_spend_columns_open_meter_level_drilldown():
     assert "select a bar for meter-level detail" in app_script
 
 
+def test_browser_visual_contract_covers_every_report_domain():
+    app_script = (Path(__file__).parents[1] / "app" / "static" / "app.js").read_text(encoding="utf-8")
+    domain_block = app_script.split("const visualReportDomains = new Set([", 1)[1].split("]);", 1)[0]
+
+    for domain in ReportDomain:
+        assert f'"{domain.value}"' in domain_block, domain.value
+
+
 def test_cli_login_uses_hidden_browser_flow(monkeypatch):
     captured = {}
 
@@ -417,6 +425,31 @@ def test_sample_inspired_domains_have_distinct_export_diagram_contracts():
         signatures.append(tuple(panel["title"] for panel in diagram["panels"]))
 
     assert len(set(signatures)) == len(domains)
+
+
+def test_every_report_domain_has_export_diagrams():
+    for domain in ReportDomain:
+        report = ReportResult(
+            domain=domain,
+            tenant_id="tenant-a",
+            subscription_scope=["sub-a"],
+            generated_at_utc=datetime.now(UTC),
+            execution_time_ms=10,
+            data_quality_score=100.0,
+            unresolved_fields_count=0,
+            live_data_confirmed=False,
+            source_audit=[],
+            rows=[],
+            recommendations=[],
+            warnings=["No accessible live rows were returned."],
+        )
+
+        diagram = build_report_diagram(report)
+
+        assert diagram is not None, domain.value
+        assert diagram["scope"], domain.value
+        assert diagram["logic"], domain.value
+        assert diagram["panels"], domain.value
 
 
 def test_cost_summary_exports_native_diagrams_and_explicit_empty_states():

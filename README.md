@@ -62,6 +62,66 @@ Product diagram of the supported report formats and deployment paths.
 
 ![Exports and deployment](docs/screenshots/exports-and-deploy.svg)
 
+### Reporting scope test gallery
+
+These browser captures validate the graph composition for every reporting scope. They use fixed synthetic fixtures and are stamped **DOCUMENTATION TEST FIXTURE - NOT LIVE AZURE DATA**; they demonstrate layout and aggregation behavior only, not tenant findings.
+
+<details>
+<summary>Cost, allocation, and capacity scopes</summary>
+
+| Tenant Spend Summary | Cost Summary |
+| --- | --- |
+| ![Tenant Spend Summary test fixture](docs/screenshots/report-scopes/tenant_spend_summary.jpg) | ![Cost Summary test fixture](docs/screenshots/report-scopes/cost_summary.jpg) |
+| **Spend Visibility** | **Budget Forecasting** |
+| ![Spend Visibility test fixture](docs/screenshots/report-scopes/spend_visibility.jpg) | ![Budget Forecasting test fixture](docs/screenshots/report-scopes/budget_forecasting.jpg) |
+| **Storage Costs** | **Resource Group Costs** |
+| ![Storage Costs test fixture](docs/screenshots/report-scopes/storage_costs.jpg) | ![Resource Group Costs test fixture](docs/screenshots/report-scopes/resource_group_costs.jpg) |
+| **Subscription Cost Summary** | **Chargeback Showback** |
+| ![Subscription Cost Summary test fixture](docs/screenshots/report-scopes/subscription_cost_summary.jpg) | ![Chargeback Showback test fixture](docs/screenshots/report-scopes/chargeback_showback.jpg) |
+| **Quota Summary** | |
+| ![Quota Summary test fixture](docs/screenshots/report-scopes/quota_summary.jpg) | |
+
+</details>
+
+<details>
+<summary>Commitment and optimization scopes</summary>
+
+| Reservation Savings | Expiring Reservations |
+| --- | --- |
+| ![Reservation Savings test fixture](docs/screenshots/report-scopes/reservation_savings.jpg) | ![Expiring Reservations test fixture](docs/screenshots/report-scopes/expiring_reservations.jpg) |
+| **Reservations** | **Savings Plans** |
+| ![Reservations test fixture](docs/screenshots/report-scopes/reservations.jpg) | ![Savings Plans test fixture](docs/screenshots/report-scopes/savings_plans.jpg) |
+| **Optimization** | **Savings Potential** |
+| ![Optimization test fixture](docs/screenshots/report-scopes/optimization.jpg) | ![Savings Potential test fixture](docs/screenshots/report-scopes/savings_potential.jpg) |
+| **Reservations Potential** | **Architecture Efficiency** |
+| ![Reservations Potential test fixture](docs/screenshots/report-scopes/reservations_potential.jpg) | ![Architecture Efficiency test fixture](docs/screenshots/report-scopes/architecture_efficiency.jpg) |
+| **Idle Waste Detection** | |
+| ![Idle Waste Detection test fixture](docs/screenshots/report-scopes/idle_waste_detection.jpg) | |
+
+</details>
+
+<details>
+<summary>Governance and inventory scopes</summary>
+
+| Anomaly Detection | Governance |
+| --- | --- |
+| ![Anomaly Detection test fixture](docs/screenshots/report-scopes/anomaly_detection.jpg) | ![Governance test fixture](docs/screenshots/report-scopes/governance.jpg) |
+| **Tag Compliance** | **Sustainability** |
+| ![Tag Compliance test fixture](docs/screenshots/report-scopes/tag_compliance.jpg) | ![Sustainability test fixture](docs/screenshots/report-scopes/sustainability.jpg) |
+
+</details>
+
+<details>
+<summary>AI scopes and mobile layout</summary>
+
+| AI FinOps | AI Token Tracking |
+| --- | --- |
+| ![AI FinOps test fixture](docs/screenshots/report-scopes/ai_finops.jpg) | ![AI Token Tracking test fixture](docs/screenshots/report-scopes/ai_token_tracking.jpg) |
+| **Mobile graph layout** | |
+| ![Mobile Idle Waste Detection test fixture](docs/screenshots/report-scopes/mobile-idle-waste-detection.jpg) | |
+
+</details>
+
 ## Architecture
 
 ```mermaid

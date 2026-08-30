@@ -7,42 +7,30 @@ from app.models import ReportResult
 
 
 REPORT_DIAGRAM_SPECS = {
-    "tenant_spend_summary": {
-        "scope": "Selected subscriptions in the authenticated tenant",
-        "logic": "Sum actual pre-tax cost by usage date, then compare each subscription as a separate monthly series.",
-    },
-    "cost_summary": {
-        "scope": "Selected subscriptions and date range",
-        "logic": "Sum actual cost and usage by subscription, charge type, meter category, and usage date.",
-    },
-    "budget_forecasting": {
-        "scope": "Selected subscriptions in the authenticated tenant",
-        "logic": "Summarize the current Cost Management response by subscription, service, and resource group as a baseline for budget planning.",
-    },
-    "reservation_savings": {
-        "scope": "Azure Cost Management and Advisor evidence in selected subscriptions",
-        "logic": "Show incurred reservation cost separately from annual savings estimates returned by Azure Advisor.",
-    },
-    "quota_summary": {
-        "scope": "Compute regions discovered in selected subscriptions",
-        "logic": "Compare current regional Compute usage with the returned limit; exceeded means current usage is at least the limit.",
-    },
-    "expiring_reservations": {
-        "scope": "Reservations that apply to the selected subscriptions",
-        "logic": "Calculate remaining calendar days from live expiry dates; join incurred cost only when Cost Management returns the same reservation ID.",
-    },
-    "storage_costs": {
-        "scope": "Storage-classified cost rows in selected subscriptions",
-        "logic": "Sum actual cost and usage quantity by storage resource and usage date.",
-    },
-    "resource_group_costs": {
-        "scope": "Resource groups in selected subscriptions",
-        "logic": "Sum actual pre-tax cost by resource group and usage date.",
-    },
-    "subscription_cost_summary": {
-        "scope": "Selected subscriptions",
-        "logic": "Calculate monthly subscription cost share, subscription totals, meter-category totals, and resource-level cost from live rows.",
-    },
+    "tenant_spend_summary": ("Selected subscriptions in the authenticated tenant", "Sum actual pre-tax cost by usage date, then compare each subscription as a separate monthly series."),
+    "cost_summary": ("Selected subscriptions and date range", "Sum actual cost and usage by subscription, charge type, meter category, and usage date."),
+    "budget_forecasting": ("Selected subscriptions in the authenticated tenant", "Summarize the current Cost Management response by subscription, service, and resource group as a baseline for budget planning."),
+    "spend_visibility": ("Current Cost Management response for selected subscriptions", "Group returned cost by subscription, service, and resource group without synthesizing missing time-series values."),
+    "optimization": ("Azure Advisor recommendations in selected subscriptions", "Summarize recommendation counts and reported annual savings estimates by recommendation, impact, and category."),
+    "reservations": ("Current Cost Management response for selected subscriptions", "Show the returned cost baseline by subscription, service, and resource group for reservation review."),
+    "savings_plans": ("Current Cost Management response for selected subscriptions", "Show the returned cost baseline by subscription, service, and resource group for savings-plan review."),
+    "savings_potential": ("Cost-related Azure Advisor recommendations in selected subscriptions", "Summarize only Advisor recommendations matched to cost and savings keywords, using reported annual savings estimates where available."),
+    "reservations_potential": ("Commitment-related Azure Advisor recommendations in selected subscriptions", "Summarize only Advisor recommendations matched to reservation, savings-plan, or commitment keywords."),
+    "anomaly_detection": ("Resource inventory in selected subscriptions", "Show inventory coverage available for anomaly analysis; the current source does not return a measured anomaly signal."),
+    "governance": ("Resource inventory and Azure Policy evidence in selected subscriptions", "Count returned policy states and inventory records by policy, resource type, and region."),
+    "tag_compliance": ("Resource tags and Azure Policy evidence in selected subscriptions", "Count observed tag coverage, tag keys, policy states, and resource types from live records."),
+    "chargeback_showback": ("Current Cost Management response for selected subscriptions", "Group returned cost by subscription, service, and resource group for allocation review."),
+    "architecture_efficiency": ("Azure Advisor recommendations in selected subscriptions", "Summarize recommendation counts and reported annual savings estimates as architecture review evidence."),
+    "sustainability": ("Resource inventory in selected subscriptions", "Show inventory distribution relevant to sustainability review; the current source does not return measured emissions."),
+    "ai_finops": ("AI usage and cost evidence plus AI resource inventory in selected subscriptions", "Summarize returned AI cost, usage, estimated token units, and inventory without treating non-token meters as tokens."),
+    "ai_token_tracking": ("AI meters returned for selected subscriptions and date range", "Chart service-level totals from normalized AI usage; estimated token units include only meters identified as token meters."),
+    "idle_waste_detection": ("Azure Advisor recommendations in selected subscriptions", "Summarize recommendation counts and reported annual savings estimates as idle-waste review evidence."),
+    "reservation_savings": ("Azure Cost Management and Advisor evidence in selected subscriptions", "Show incurred reservation cost separately from annual savings estimates returned by Azure Advisor."),
+    "quota_summary": ("Compute regions discovered in selected subscriptions", "Compare current regional Compute usage with the returned limit; exceeded means current usage is at least the limit."),
+    "expiring_reservations": ("Reservations that apply to the selected subscriptions", "Calculate remaining calendar days from live expiry dates; join incurred cost only when Cost Management returns the same reservation ID."),
+    "storage_costs": ("Storage-classified cost rows in selected subscriptions", "Sum actual cost and usage quantity by storage resource and usage date."),
+    "resource_group_costs": ("Resource groups in selected subscriptions", "Sum actual pre-tax cost by resource group and usage date."),
+    "subscription_cost_summary": ("Selected subscriptions", "Calculate monthly subscription cost share, subscription totals, meter-category totals, and resource-level cost from live rows."),
 }
 
 
@@ -95,6 +83,20 @@ def _panel(
     }
 
 
+def _count_group(rows: list[dict[str, Any]], label_keys: str | tuple[str, ...]) -> list[dict[str, object]]:
+    return _group([{**row, "diagramCount": 1} for row in rows], label_keys, "diagramCount")
+
+
+def _tag_key_entries(rows: list[dict[str, Any]]) -> list[dict[str, object]]:
+    totals: dict[str, int] = defaultdict(int)
+    for row in rows:
+        tags = row.get("tags")
+        if isinstance(tags, dict):
+            for key in tags:
+                totals[str(key)] += 1
+    return [{"label": label, "value": value} for label, value in sorted(totals.items(), key=lambda item: (-item[1], item[0]))]
+
+
 def _share_panel(
     title: str,
     subtitle: str,
@@ -112,10 +114,7 @@ def _share_panel(
         series_totals[series] += value
     series = sorted(series_totals, key=lambda label: (-series_totals[label], label))
     categories = [
-        {
-            "label": category,
-            "values": [round(totals[category].get(label, 0.0), 6) for label in series],
-        }
+        {"label": category, "values": [round(totals[category].get(label, 0.0), 6) for label in series]}
         for category in sorted(totals)
     ]
     return {
@@ -165,6 +164,63 @@ def build_report_diagram(report: ReportResult) -> dict[str, object] | None:
             _panel("Subscription share", "Percent of current scoped cost", "donut", _group(rows, "subscriptionId")),
             _panel("Cost by service", "Services contributing most to the baseline", "bars", _group(rows, "serviceName")),
             _panel("Cost by resource group", "Resource groups contributing most to the baseline", "bars", _group(rows, "resourceGroup")),
+        ]
+    elif domain in {"spend_visibility", "reservations", "savings_plans", "chargeback_showback"}:
+        panels = [
+            _panel("Cost by subscription", "Current scoped cost", "columns", _group(rows, "subscriptionId")),
+            _panel("Cost by service", "Returned cost grouped by Azure service", "bars", _group(rows, "serviceName")),
+            _panel("Cost by resource group", "Returned cost grouped by resource group", "bars", _group(rows, "resourceGroup")),
+            _panel("Service cost share", "Share of current scoped cost", "donut", _group(rows, "serviceName")),
+        ]
+    elif domain in {"optimization", "savings_potential", "reservations_potential", "architecture_efficiency", "idle_waste_detection"}:
+        panels = [
+            _panel("Savings by recommendation", "Annual savings estimate reported by Azure Advisor", "bars", _group(rows, "recommendationType", "savingsEstimate")),
+            _panel("Savings by impact", "Advisor-reported savings grouped by impact", "donut", _group(rows, "impact", "savingsEstimate")),
+            _panel("Recommendations by category", "Count of returned Advisor recommendations", "columns", _count_group(rows, "category"), "number"),
+            _panel("Recommendations by subscription", "Count across selected subscriptions", "bars", _count_group(rows, "subscriptionId"), "number"),
+        ]
+    elif domain in {"anomaly_detection", "sustainability"}:
+        inventory = [row for row in rows if row.get("resourceType")]
+        panels = [
+            _panel("Resources by type", "Inventory coverage returned for analysis", "bars", _count_group(inventory, "resourceType"), "number"),
+            _panel("Resources by region", "Inventory distribution by Azure region", "donut", _count_group(inventory, "region"), "number"),
+            _panel("Resources by subscription", "Inventory count across selected subscriptions", "columns", _count_group(inventory, "subscriptionId"), "number"),
+        ]
+    elif domain == "governance":
+        inventory = [row for row in rows if row.get("resourceType")]
+        policy = [row for row in rows if row.get("complianceState") or row.get("policyDefinitionName")]
+        panels = [
+            _panel("Policy evidence by state", "Count of returned Azure Policy records", "donut", _count_group(policy, "complianceState"), "number"),
+            _panel("Policy evidence by definition", "Most frequently returned policy definitions", "bars", _count_group(policy, "policyDefinitionName"), "number"),
+            _panel("Resources by type", "Resource inventory included in the governance scope", "bars", _count_group(inventory, "resourceType"), "number"),
+            _panel("Resources by region", "Inventory distribution by Azure region", "columns", _count_group(inventory, "region"), "number"),
+        ]
+    elif domain == "tag_compliance":
+        inventory = [row for row in rows if row.get("resourceType")]
+        policy = [row for row in rows if row.get("complianceState")]
+        coverage = [{"tagCoverage": "Tagged" if isinstance(row.get("tags"), dict) and row["tags"] else "Untagged"} for row in inventory]
+        panels = [
+            _panel("Tag coverage", "Count of resources with and without observed tags", "donut", _count_group(coverage, "tagCoverage"), "number"),
+            _panel("Most common tag keys", "Number of resources carrying each observed key", "bars", _tag_key_entries(inventory), "number"),
+            _panel("Policy evidence by state", "Count of returned Azure Policy records", "columns", _count_group(policy, "complianceState"), "number"),
+            _panel("Resources by type", "Inventory included in tag analysis", "bars", _count_group(inventory, "resourceType"), "number"),
+        ]
+    elif domain == "ai_finops":
+        usage = report.ai_token_tracking
+        inventory = [row for row in rows if row.get("resourceType")]
+        panels = [
+            _panel("AI cost by service", "Cost returned for AI meters", "bars", _group(usage, "serviceName")),
+            _panel("Estimated token units by service", "Usage from meters identified as token meters", "bars", _group(usage, "serviceName", "estimatedTokenUnits"), "number"),
+            _panel("AI usage by meter", "Returned usage quantity by meter", "bars", _group(usage, "meterName", "usageQuantity"), "number"),
+            _panel("AI resources by type", "Resource inventory in the AI FinOps scope", "donut", _count_group(inventory, "resourceType"), "number"),
+        ]
+    elif domain == "ai_token_tracking":
+        service_rows = [row for row in rows if row.get("serviceScope") != "All AI Services"]
+        panels = [
+            _panel("AI cost by service", "Normalized total cost", "bars", _group(service_rows, "serviceScope", "totalCost")),
+            _panel("Estimated token units by service", "Totals from identified token meters", "bars", _group(service_rows, "serviceScope", "totalEstimatedTokenUnits"), "number"),
+            _panel("Usage quantity by service", "Normalized total usage quantity", "bars", _group(service_rows, "serviceScope", "totalUsageQuantity"), "number"),
+            _panel("Meter records by service", "Count of normalized source records", "columns", _group(service_rows, "serviceScope", "records"), "number"),
         ]
     elif domain == "reservation_savings":
         incurred = [row for row in rows if row.get("recordType") == "reservation_cost"]
@@ -228,7 +284,7 @@ def build_report_diagram(report: ReportResult) -> dict[str, object] | None:
 
     return {
         "title": domain.replace("_", " ").title(),
-        "scope": spec["scope"],
-        "logic": spec["logic"],
+        "scope": spec[0],
+        "logic": spec[1],
         "panels": panels,
     }
