@@ -53,15 +53,35 @@ $hashBytes = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encodi
 $hash = [Convert]::ToHexString($hashBytes).Substring(0, 6).ToLowerInvariant()
 $storageName = ($storageSeed.Substring(0, [Math]::Min(17, $storageSeed.Length)) + $hash).PadRight(3, "0")
 
-Write-Host "[4/7] Creating deployment storage if needed..."
-Invoke-External -FilePath "az" -Arguments @(
-  "storage", "account", "create", "--name", $storageName,
-  "--resource-group", $ResourceGroup, "--location", $Location,
-  "--sku", "Standard_LRS", "--allow-blob-public-access", "false", "--output", "none"
-)
-
 $existingApp = az functionapp show --name $FunctionAppName --resource-group $ResourceGroup --query name --output tsv 2>$null
-if (-not $existingApp) {
+if ($existingApp) {
+  $deploymentStorageConnection = az functionapp config appsettings list --name $FunctionAppName --resource-group $ResourceGroup --output json |
+    ConvertFrom-Json |
+    Where-Object { $_.name -eq "AzureWebJobsStorage" } |
+    Select-Object -ExpandProperty value
+  $storageMatch = [regex]::Match($deploymentStorageConnection, "(?:^|;)AccountName=([^;]+)")
+  if (-not $storageMatch.Success) {
+    throw "Existing Function App does not have a valid AzureWebJobsStorage connection string."
+  }
+  $storageName = $storageMatch.Groups[1].Value
+  $storageResourceGroup = az storage account show --name $storageName --query resourceGroup --output tsv
+  if ($LASTEXITCODE -ne 0 -or -not $storageResourceGroup) {
+    throw "Could not resolve the existing Function App deployment storage account: $storageName"
+  }
+  Write-Host "[4/7] Enabling Function platform access to existing deployment storage..."
+  Invoke-External -FilePath "az" -Arguments @(
+    "storage", "account", "update", "--name", $storageName,
+    "--resource-group", $storageResourceGroup, "--public-network-access", "Enabled", "--output", "none"
+  )
+} else {
+  Write-Host "[4/7] Creating deployment storage..."
+  Invoke-External -FilePath "az" -Arguments @(
+    "storage", "account", "create", "--name", $storageName,
+    "--resource-group", $ResourceGroup, "--location", $Location,
+    "--sku", "Standard_LRS", "--allow-blob-public-access", "false",
+    "--public-network-access", "Enabled", "--output", "none"
+  )
+
   Write-Host "[5/7] Creating Linux Flex Consumption Function App..."
   Invoke-External -FilePath "az" -Arguments @(
     "functionapp", "create", "--name", $FunctionAppName,
@@ -75,7 +95,7 @@ if (-not $existingApp) {
 
 Invoke-External -FilePath "az" -Arguments @(
   "functionapp", "config", "appsettings", "set", "--name", $FunctionAppName,
-  "--resource-group", $ResourceGroup, "--settings", "FINOPS_APP_VERSION=1.0.4", "--output", "none"
+  "--resource-group", $ResourceGroup, "--settings", "FINOPS_APP_VERSION=1.2.1", "--output", "none"
 )
 
 Write-Host "[6/7] Publishing application code with a remote build..."

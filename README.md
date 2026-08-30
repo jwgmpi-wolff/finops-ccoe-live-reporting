@@ -326,7 +326,7 @@ az login
    -FunctionAppName "finops-reporting-<unique-suffix>"
 ```
 
-The script validates the active tenant and subscription, runs the tests, creates or reuses a Linux Python 3.11 Flex Consumption Function App and deployment storage, publishes with a remote build, and verifies HTTPS health.
+The script validates the active tenant and subscription, runs the tests, creates or reuses a Linux Python 3.11 Flex Consumption Function App and deployment storage, publishes with a remote build, and verifies HTTPS health. For an existing app, it resolves the configured `AzureWebJobsStorage` account and enables public network access for Azure Functions platform artifact deployment; the storage account continues to block anonymous blob access.
 
 Verify after deployment:
 
