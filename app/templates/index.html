@@ -83,7 +83,10 @@
         <p id="resultDialogLabel" class="dialog-label"></p>
         <h2 id="resultDialogTitle">Result details</h2>
       </div>
-      <button id="closeResultDialog" class="dialog-close" type="button" aria-label="Close details">&times;</button>
+      <div class="dialog-controls">
+        <button id="drilldownBack" class="dialog-back" type="button" aria-label="Back to previous view" style="display:none;">← Back</button>
+        <button id="closeResultDialog" class="dialog-close" type="button" aria-label="Close details">&times;</button>
+      </div>
     </div>
     <div id="resultDialogBody" class="dialog-body"></div>
   </dialog>

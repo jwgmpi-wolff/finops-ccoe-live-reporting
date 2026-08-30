@@ -387,6 +387,8 @@ function openResultDialog(title, item, isRecommendation = false) {
   resultDialog.showModal();
 }
 
+let drilldownStack = [];
+
 function openSpendDrilldown(subscriptionId, usageDate, rows) {
   const meterRows = new Map();
   rows.forEach((row) => {
@@ -436,10 +438,100 @@ function openSpendDrilldown(subscriptionId, usageDate, rows) {
     displayRows,
     ["meterCategory", "meterSubCategory", "meterName", "serviceName", "chargeType", "cost", "costShare", "usageQuantity", "unitOfMeasure"],
   ));
+  drilldownStack.push({ subscriptionId, usageDate, rows });
+  updateDrilldownControls();
   resultDialog.showModal();
 }
 
+function openDrilldown(dimension, filterValue, sourceRows, displayLabel, domain) {
+  const filteredRows = sourceRows.filter((row) => {
+    const rowValue = String(row[dimension] || "Unspecified");
+    return rowValue === filterValue;
+  });
+
+  if (!filteredRows.length) {
+    console.warn(`No rows match ${dimension}=${filterValue}`);
+    return;
+  }
+
+  const aggregateMeterRows = new Map();
+  filteredRows.forEach((row) => {
+    const fields = [
+      row.meterCategory || "Unspecified",
+      row.meterSubCategory || "Unspecified",
+      row.meterName || "Unspecified",
+      row.unitOfMeasure || "Unspecified",
+      row.serviceName || "Unspecified",
+      row.chargeType || "Unspecified",
+    ];
+    const key = fields.join("\u0000");
+    const aggregate = aggregateMeterRows.get(key) || {
+      meterCategory: fields[0],
+      meterSubCategory: fields[1],
+      meterName: fields[2],
+      unitOfMeasure: fields[3],
+      serviceName: fields[4],
+      chargeType: fields[5],
+      cost: 0,
+      usageQuantity: 0,
+      recordCount: 0,
+    };
+    aggregate.cost += numericValue(row.cost);
+    aggregate.usageQuantity += numericValue(row.usageQuantity);
+    aggregate.recordCount += 1;
+    aggregateMeterRows.set(key, aggregate);
+  });
+
+  const breakdown = [...aggregateMeterRows.values()].sort((left, right) => right.cost - left.cost);
+  const totalCost = breakdown.reduce((sum, row) => sum + row.cost, 0);
+  const displayRows = breakdown.map((row) => ({
+    ...row,
+    cost: formatCurrency(row.cost),
+    costShare: `${(totalCost ? (row.cost / totalCost) * 100 : 0).toFixed(1)}%`,
+    usageQuantity: formatCompactNumber(row.usageQuantity),
+  }));
+
+  resultDialogLabel.textContent = `Detail drilldown: ${dimension}`;
+  resultDialogTitle.textContent = `${displayLabel || filterValue} — ${formatCurrency(totalCost)} across ${breakdown.length} meters`;
+  resultDialogBody.innerHTML = "";
+  appendDialogFields(resultDialogBody, {
+    dimension,
+    filterValue: displayLabel || filterValue,
+    actualCost: formatCurrency(totalCost),
+    meterLines: breakdown.length,
+    sourceRows: filteredRows.length,
+  });
+  resultDialogBody.appendChild(buildArrayTable(
+    "Meter breakdown",
+    displayRows,
+    ["meterCategory", "meterSubCategory", "meterName", "serviceName", "chargeType", "cost", "costShare", "usageQuantity", "unitOfMeasure"],
+  ));
+  drilldownStack.push({ dimension, filterValue, rows: sourceRows });
+  updateDrilldownControls();
+  resultDialog.showModal();
+}
+
+function updateDrilldownControls() {
+  const backBtn = document.getElementById("drilldownBack");
+  if (backBtn) {
+    backBtn.style.display = drilldownStack.length > 1 ? "inline-block" : "none";
+  }
+}
+
+function goBackDrilldown() {
+  if (drilldownStack.length > 1) {
+    drilldownStack.pop();
+    const previous = drilldownStack[drilldownStack.length - 1];
+    if (previous.subscriptionId && previous.usageDate) {
+      openSpendDrilldown(previous.subscriptionId, previous.usageDate, previous.rows);
+    } else if (previous.dimension) {
+      openDrilldown(previous.dimension, previous.filterValue, previous.rows);
+    }
+  }
+}
+
 document.getElementById("closeResultDialog").addEventListener("click", () => resultDialog.close());
+document.getElementById("drilldownBack").addEventListener("click", () => goBackDrilldown());
 resultDialog.addEventListener("click", (event) => {
   if (event.target === resultDialog) {
     resultDialog.close();
@@ -951,6 +1043,20 @@ function renderRankedBars(panel, entries, valueFormatter = formatCurrency, tone 
   ranked.forEach((entry) => {
     const row = document.createElement("div");
     row.className = "report-bar-row";
+    if (entry.onActivate) {
+      row.classList.add("report-bar-interactive");
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `${entry.label}: ${valueFormatter(entry.value)}. Open detailed report.`);
+      row.title = "Click for detail drilldown";
+      row.addEventListener("click", entry.onActivate);
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          entry.onActivate();
+        }
+      });
+    }
     const label = document.createElement("span");
     label.className = "report-bar-label";
     label.textContent = entry.label;
@@ -1047,6 +1153,20 @@ function renderDonut(panel, entries, valueFormatter = formatCurrency) {
   legend.className = "report-donut-legend";
   ranked.forEach((entry, index) => {
     const row = document.createElement("div");
+    if (entry.onActivate) {
+      row.classList.add("report-legend-interactive");
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `${entry.label}: ${valueFormatter(entry.value)}. Open detailed report.`);
+      row.title = "Click for detail drilldown";
+      row.addEventListener("click", entry.onActivate);
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          entry.onActivate();
+        }
+      });
+    }
     const swatch = document.createElement("span");
     swatch.style.background = colors[index];
     const label = document.createElement("span");
@@ -1166,28 +1286,59 @@ function renderDomainDiagrams(data, charts) {
   }
 
   if (data.domain === "cost_summary") {
-    appendChart(charts, "Cost by subscription", "Absolute cost comparison", (panel) => renderColumns(panel, groupTotals(rows, "subscriptionId")));
-    appendChart(charts, "Subscription share", "Percent of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "subscriptionId")));
+    appendChart(charts, "Cost by subscription", "Absolute cost comparison", (panel) => renderColumns(panel, groupTotals(rows, "subscriptionId").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("subscriptionId", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Subscription share", "Percent of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "subscriptionId").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("subscriptionId", entry.label, rows, entry.label),
+    }))));
     appendChart(charts, "Monthly charge-type mix", "100% cost share by purchase or usage charge", (panel) => renderShareBars(panel, rows, "usageDate", "chargeType"));
-    appendChart(charts, "Cost by meter category", "Ranked service meter categories", (panel) => renderRankedBars(panel, groupTotals(rows, "meterCategory")));
+    appendChart(charts, "Cost by meter category", "Ranked service meter categories", (panel) => renderRankedBars(panel, groupTotals(rows, "meterCategory").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("meterCategory", entry.label, rows, entry.label),
+    }))));
     return;
   }
 
   if (data.domain === "reservation_savings") {
     const incurredCosts = rows.filter((row) => row.recordType === "reservation_cost");
     const recommendations = rows.filter((row) => row.recordType === "advisor_recommendation");
-    appendChart(charts, "Reservation cost incurred", "Actual reservation cost by usage date", (panel) => renderColumns(panel, groupTotals(incurredCosts, "usageDate")));
-    appendChart(charts, "Cost by reservation", "Actual cost returned by Cost Management", (panel) => renderRankedBars(panel, groupTotals(incurredCosts, "reservationName")));
-    appendChart(charts, "Savings by recommendation", "Annual savings estimate returned by Azure Advisor", (panel) => renderRankedBars(panel, groupTotals(recommendations, "recommendationType", "savingsEstimate"), formatCurrency, "savings"));
-    appendChart(charts, "Savings by impact", "Advisor impact distribution weighted by savings", (panel) => renderDonut(panel, groupTotals(recommendations, "impact", "savingsEstimate")));
+    appendChart(charts, "Reservation cost incurred", "Actual reservation cost by usage date", (panel) => renderColumns(panel, groupTotals(incurredCosts, "usageDate").map((entry) => ({
+      ...entry,
+      displayLabel: formatUsageDate(entry.label),
+      onActivate: () => openDrilldown("usageDate", entry.label, incurredCosts, formatUsageDate(entry.label)),
+    }))));
+    appendChart(charts, "Cost by reservation", "Actual cost returned by Cost Management", (panel) => renderRankedBars(panel, groupTotals(incurredCosts, "reservationName").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("reservationName", entry.label, incurredCosts, entry.label),
+    }))));
+    appendChart(charts, "Savings by recommendation", "Annual savings estimate returned by Azure Advisor", (panel) => renderRankedBars(panel, groupTotals(recommendations, "recommendationType", "savingsEstimate").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("recommendationType", entry.label, recommendations, entry.label),
+    })), formatCurrency, "savings"));
+    appendChart(charts, "Savings by impact", "Advisor impact distribution weighted by savings", (panel) => renderDonut(panel, groupTotals(recommendations, "impact", "savingsEstimate").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("impact", entry.label, recommendations, entry.label),
+    }))));
     return;
   }
 
   if (data.domain === "quota_summary") {
-    appendChart(charts, "Current usage by region", "Sum of returned Compute usage counters", (panel) => renderColumns(panel, groupTotals(rows, "region", "currentValue"), formatCompactNumber, "quota"));
-    appendChart(charts, "Highest quota utilization", "Current value divided by limit", (panel) => renderRankedBars(panel, groupTotals(rows, "quotaName", "utilizationPercent"), (value) => `${value.toFixed(1)}%`, "quota"));
+    appendChart(charts, "Current usage by region", "Sum of returned Compute usage counters", (panel) => renderColumns(panel, groupTotals(rows, "region", "currentValue").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("region", entry.label, rows, entry.label),
+    })), formatCompactNumber, "quota"));
+    appendChart(charts, "Highest quota utilization", "Current value divided by limit", (panel) => renderRankedBars(panel, groupTotals(rows, "quotaName", "utilizationPercent").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("quotaName", entry.label, rows, entry.label),
+    })), (value) => `${value.toFixed(1)}%`, "quota"));
     const exceeded = rows.filter((row) => numericValue(row.limit) > 0 && numericValue(row.currentValue) >= numericValue(row.limit));
-    appendChart(charts, "Reached or exceeded limits", "Only counters at 100% utilization or higher", (panel) => renderRankedBars(panel, groupTotals(exceeded, "quotaName", "currentValue"), formatCompactNumber, "expiry"));
+    appendChart(charts, "Reached or exceeded limits", "Only counters at 100% utilization or higher", (panel) => renderRankedBars(panel, groupTotals(exceeded, "quotaName", "currentValue").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("quotaName", entry.label, exceeded, entry.label),
+    })), formatCompactNumber, "expiry"));
     return;
   }
 
@@ -1197,33 +1348,70 @@ function renderDomainDiagrams(data, charts) {
       const expiryCohort = days < 0 ? "Expired" : days <= 30 ? "0-30 days" : days <= 90 ? "31-90 days" : days <= 365 ? "91-365 days" : "Over 365 days";
       return { ...row, expiryCohort, reservationCount: 1 };
     });
-    appendChart(charts, "Reservations by expiry cohort", "Count grouped by calculated remaining days", (panel) => renderColumns(panel, groupTotals(cohorts, "expiryCohort", "reservationCount"), formatCompactNumber, "expiry"));
+    appendChart(charts, "Reservations by expiry cohort", "Count grouped by calculated remaining days", (panel) => renderColumns(panel, groupTotals(cohorts, "expiryCohort", "reservationCount").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("expiryCohort", entry.label, cohorts, entry.label),
+    })), formatCompactNumber, "expiry"));
     appendChart(charts, "Nearest reservation expirations", "Remaining days by reservation", (panel) => renderRankedBars(panel, rows.filter((row) => numericValue(row.remainingDays) >= 0).map((row) => ({ label: row.displayName || row.reservationId || "Unnamed reservation", value: numericValue(row.remainingDays) })), (value) => `${formatCompactNumber(value)} days`, "expiry", "ascending"));
     appendChart(charts, "Matched incurred cost", "Cost is shown only where reservation IDs matched across live sources", (panel) => renderRankedBars(panel, rows.filter((row) => row.incurredCost !== null && row.incurredCost !== undefined).map((row) => ({ label: row.displayName || row.reservationId || "Unnamed reservation", value: numericValue(row.incurredCost) }))));
-    appendChart(charts, "Reservation resource types", "Share of live reservation inventory", (panel) => renderDonut(panel, groupTotals(rows.map((row) => ({ ...row, reservationCount: 1 })), "reservedResourceType", "reservationCount"), formatCompactNumber));
+    appendChart(charts, "Reservation resource types", "Share of live reservation inventory", (panel) => renderDonut(panel, groupTotals(rows.map((row) => ({ ...row, reservationCount: 1 })), "reservedResourceType", "reservationCount").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("reservedResourceType", entry.label, rows, entry.label),
+    })), formatCompactNumber));
     return;
   }
 
   if (data.domain === "storage_costs") {
-    appendChart(charts, "Storage cost share", "Actual cost by storage resource", (panel) => renderDonut(panel, groupTotals(rows, "resourceName")));
-    appendChart(charts, "Storage usage share", "Usage quantity by storage resource", (panel) => renderDonut(panel, groupTotals(rows, "resourceName", "usageQuantity"), formatCompactNumber));
-    appendChart(charts, "Storage cost by resource", "Top storage resources", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName")));
-    appendChart(charts, "Storage usage by resource", "Top storage resources by quantity", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName", "usageQuantity"), formatCompactNumber));
+    appendChart(charts, "Storage cost share", "Actual cost by storage resource", (panel) => renderDonut(panel, groupTotals(rows, "resourceName").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("resourceName", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Storage usage share", "Usage quantity by storage resource", (panel) => renderDonut(panel, groupTotals(rows, "resourceName", "usageQuantity").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("resourceName", entry.label, rows, entry.label),
+    })), formatCompactNumber));
+    appendChart(charts, "Storage cost by resource", "Top storage resources", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("resourceName", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Storage usage by resource", "Top storage resources by quantity", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName", "usageQuantity").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("resourceName", entry.label, rows, entry.label),
+    })), formatCompactNumber));
     return;
   }
 
   if (data.domain === "resource_group_costs") {
-    appendChart(charts, "Cost by resource group", "Ranked actual cost", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceGroup")));
-    appendChart(charts, "Monthly resource-group cost", "Actual cost by usage date", (panel) => renderColumns(panel, groupTotals(rows, "usageDate")));
-    appendChart(charts, "Resource-group cost mix", "Share of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "resourceGroup")));
+    appendChart(charts, "Cost by resource group", "Ranked actual cost", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceGroup").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("resourceGroup", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Monthly resource-group cost", "Actual cost by usage date", (panel) => renderColumns(panel, groupTotals(rows, "usageDate").map((entry) => ({
+      ...entry,
+      displayLabel: formatUsageDate(entry.label),
+      onActivate: () => openDrilldown("usageDate", entry.label, rows, formatUsageDate(entry.label)),
+    }))));
+    appendChart(charts, "Resource-group cost mix", "Share of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "resourceGroup").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("resourceGroup", entry.label, rows, entry.label),
+    }))));
     return;
   }
 
   if (data.domain === "subscription_cost_summary") {
     appendChart(charts, "Monthly subscription mix", "100% monthly cost share", (panel) => renderShareBars(panel, rows, "usageDate", "subscriptionId"));
-    appendChart(charts, "Cost by subscription", "Percent of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "subscriptionId")));
-    appendChart(charts, "Cost by meter category", "Ranked meter categories", (panel) => renderRankedBars(panel, groupTotals(rows, "meterCategory")));
-    appendChart(charts, "Cost by resource", "Ranked resource totals", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName")));
+    appendChart(charts, "Cost by subscription", "Percent of selected-scope cost", (panel) => renderDonut(panel, groupTotals(rows, "subscriptionId").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("subscriptionId", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Cost by meter category", "Ranked meter categories", (panel) => renderRankedBars(panel, groupTotals(rows, "meterCategory").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("meterCategory", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Cost by resource", "Ranked resource totals", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceName").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("resourceName", entry.label, rows, entry.label),
+    }))));
   }
 }
 

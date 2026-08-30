@@ -341,6 +341,26 @@ button:hover {
   font-size: 0.74rem;
 }
 
+.report-bar-interactive {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+  margin: -0.3rem -0.4rem;
+  transition: background-color 150ms ease-out;
+}
+
+.report-bar-interactive:hover,
+.report-bar-interactive:focus-visible {
+  background: #ecfdf5;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.report-bar-interactive:hover .report-bar-fill,
+.report-bar-interactive:focus-visible .report-bar-fill {
+  filter: brightness(0.82);
+}
+
 .report-bar-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -505,6 +525,21 @@ button:hover {
   min-width: 0;
   color: #475569;
   font-size: 0.68rem;
+}
+
+.report-legend-interactive {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0.2rem 0.3rem;
+  margin: -0.2rem -0.3rem;
+  transition: background-color 150ms ease-out;
+}
+
+.report-legend-interactive:hover,
+.report-legend-interactive:focus-visible {
+  background: #ecfdf5;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .report-donut-legend > div > span:first-child {
@@ -685,6 +720,26 @@ button:hover {
   gap: 1rem;
   padding: 1rem 1rem 0.75rem;
   border-bottom: 1px solid var(--line);
+}
+
+.dialog-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.dialog-back {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: background-color 150ms ease-out;
+}
+
+.dialog-back:hover {
+  background: #ecfdf5;
 }
 
 .dialog-header h2,
