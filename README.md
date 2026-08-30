@@ -189,7 +189,7 @@ if ($actual -ne $expected) { throw "Installer checksum does not match." }
 
 The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports still require the signed-in user to have Azure CLI or browser OAuth authentication and Azure RBAC access.
 
-Version 1.1.2 adds distinct sample-matched diagram compositions to the browser, PDF, and PowerPoint outputs and separates incurred reservation cost, potential savings, and expiry evidence. Exported values remain calculated only from the current live report run.
+Version 1.1.3 adds clickable tenant-spend bars with meter-level live cost drilldowns. Cost tables now prioritize descriptive meter category, subcategory, meter, unit, service, cost, and usage columns. Version 1.1.2 added distinct sample-matched diagram compositions to the browser, PDF, and PowerPoint outputs and separated incurred reservation cost, potential savings, and expiry evidence. Exported values remain calculated only from the current live report run.
 
 ## Install on Windows
 
@@ -244,8 +244,8 @@ Generated application and installer files under `dist` are intentionally exclude
 When GitHub-hosted runners are enabled, maintainers publish both packages by pushing a version tag. The `Publish Windows release` workflow runs tests, rebuilds from source, creates checksums, and attaches the files to the matching GitHub release:
 
 ```powershell
-git tag v1.1.2
-git push origin v1.1.2
+git tag v1.1.3
+git push origin v1.1.3
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -259,7 +259,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.1.2 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.1.3 @assets ".\dist\SHA256SUMS.txt" --generate-notes
 ```
 
 To verify the unpackaged application before installing:

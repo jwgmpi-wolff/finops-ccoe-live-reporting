@@ -266,6 +266,23 @@ function formatCellValue(value) {
   return String(value);
 }
 
+function formatUsageDate(value) {
+  const text = String(value || "");
+  const compactMatch = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const match = compactMatch || isoMatch;
+  if (!match) {
+    return text || "Unspecified date";
+  }
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 function escapeHtml(value) {
   return value
     .replace(/&/g, "&amp;")
@@ -276,6 +293,27 @@ function escapeHtml(value) {
 }
 
 function humanizeFieldName(value) {
+  const labels = {
+    actualCost: "Actual Cost",
+    chargeType: "Charge Type",
+    costShare: "Cost Share",
+    meterCategory: "Meter Category",
+    meterLines: "Meter Lines",
+    meterName: "Meter",
+    meterSubCategory: "Meter Subcategory",
+    recordCount: "Source Records",
+    resourceGroup: "Resource Group",
+    resourceId: "Resource ID",
+    resourceName: "Resource Name",
+    serviceName: "Azure Service",
+    subscriptionId: "Subscription ID",
+    unitOfMeasure: "Unit of Measure",
+    usageDate: "Usage Date",
+    usageQuantity: "Usage Quantity",
+  };
+  if (labels[value]) {
+    return labels[value];
+  }
   return String(value || "")
     .replace(/[_-]+/g, " ")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -349,6 +387,58 @@ function openResultDialog(title, item, isRecommendation = false) {
   resultDialog.showModal();
 }
 
+function openSpendDrilldown(subscriptionId, usageDate, rows) {
+  const meterRows = new Map();
+  rows.forEach((row) => {
+    const fields = [
+      row.meterCategory || "Unspecified",
+      row.meterSubCategory || "Unspecified",
+      row.meterName || "Unspecified",
+      row.unitOfMeasure || "Unspecified",
+      row.serviceName || "Unspecified",
+      row.chargeType || "Unspecified",
+    ];
+    const key = fields.join("\u0000");
+    const aggregate = meterRows.get(key) || {
+      meterCategory: fields[0],
+      meterSubCategory: fields[1],
+      meterName: fields[2],
+      unitOfMeasure: fields[3],
+      serviceName: fields[4],
+      chargeType: fields[5],
+      cost: 0,
+      usageQuantity: 0,
+    };
+    aggregate.cost += numericValue(row.cost);
+    aggregate.usageQuantity += numericValue(row.usageQuantity);
+    meterRows.set(key, aggregate);
+  });
+
+  const breakdown = [...meterRows.values()].sort((left, right) => right.cost - left.cost);
+  const totalCost = breakdown.reduce((sum, row) => sum + row.cost, 0);
+  const displayRows = breakdown.map((row) => ({
+    ...row,
+    cost: formatCurrency(row.cost),
+    costShare: `${(totalCost ? (row.cost / totalCost) * 100 : 0).toFixed(1)}%`,
+    usageQuantity: formatCompactNumber(row.usageQuantity),
+  }));
+  resultDialogLabel.textContent = "Meter-level live cost drilldown";
+  resultDialogTitle.textContent = `${formatUsageDate(usageDate)} spend detail`;
+  resultDialogBody.innerHTML = "";
+  appendDialogFields(resultDialogBody, {
+    subscriptionId,
+    usageDate: formatUsageDate(usageDate),
+    actualCost: formatCurrency(totalCost),
+    meterLines: breakdown.length,
+  });
+  resultDialogBody.appendChild(buildArrayTable(
+    "Meter breakdown",
+    displayRows,
+    ["meterCategory", "meterSubCategory", "meterName", "serviceName", "chargeType", "cost", "costShare", "usageQuantity", "unitOfMeasure"],
+  ));
+  resultDialog.showModal();
+}
+
 document.getElementById("closeResultDialog").addEventListener("click", () => resultDialog.close());
 resultDialog.addEventListener("click", (event) => {
   if (event.target === resultDialog) {
@@ -402,7 +492,7 @@ function buildKeyValueTable(title, data) {
   return block;
 }
 
-function buildArrayTable(title, rows) {
+function buildArrayTable(title, rows, preferredColumns = []) {
   const block = document.createElement("div");
   block.className = "result-block";
 
@@ -489,6 +579,7 @@ function buildArrayTable(title, rows) {
     return normalized === "resourceid";
   };
 
+  const preferredColumnRanks = new Map(preferredColumns.map((column, index) => [column, index]));
   const columns = discoveredColumns
     .map((name, index) => ({
       name,
@@ -497,6 +588,13 @@ function buildArrayTable(title, rows) {
       resourceId: isResourceIdColumn(name),
     }))
     .sort((a, b) => {
+      const aPreferred = preferredColumnRanks.get(a.name);
+      const bPreferred = preferredColumnRanks.get(b.name);
+      if (aPreferred !== undefined || bPreferred !== undefined) {
+        if (aPreferred === undefined) return 1;
+        if (bPreferred === undefined) return -1;
+        return aPreferred - bPreferred;
+      }
       if (a.resourceId !== b.resourceId) {
         return a.resourceId ? 1 : -1;
       }
@@ -513,7 +611,7 @@ function buildArrayTable(title, rows) {
   const headerCells = columns
     .map((col) => {
       const headerClass = isResourceIdColumn(col) ? "col-resourceid" : "";
-      return `<th class="${headerClass}">${escapeHtml(col)}</th>`;
+      return `<th class="${headerClass}">${escapeHtml(humanizeFieldName(col))}</th>`;
     })
     .join("");
   const actionHeader = isRecommendationTable ? '<th class="col-action">Action</th>' : "";
@@ -886,6 +984,20 @@ function renderColumns(panel, entries, valueFormatter = formatCurrency, tone = "
   values.forEach((entry) => {
     const item = document.createElement("div");
     item.className = "report-column-item";
+    if (entry.onActivate) {
+      item.classList.add("report-column-interactive");
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-label", `${entry.displayLabel || entry.label}: ${valueFormatter(entry.value)}. Open detailed report.`);
+      item.title = "Open meter-level report";
+      item.addEventListener("click", entry.onActivate);
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          entry.onActivate();
+        }
+      });
+    }
     const value = document.createElement("strong");
     value.textContent = valueFormatter(entry.value);
     const track = document.createElement("span");
@@ -896,8 +1008,8 @@ function renderColumns(panel, entries, valueFormatter = formatCurrency, tone = "
     track.appendChild(bar);
     const label = document.createElement("span");
     label.className = "report-column-label";
-    label.textContent = entry.label.slice(0, 12);
-    label.title = entry.label;
+    label.textContent = (entry.displayLabel || entry.label).slice(0, 12);
+    label.title = entry.displayLabel || entry.label;
     item.append(value, track, label);
     chart.appendChild(item);
   });
@@ -1032,12 +1144,24 @@ function renderDomainDiagrams(data, charts) {
   const rows = data.rows;
   if (data.domain === "tenant_spend_summary") {
     const subscriptions = groupTotals(rows, "subscriptionId").sort((left, right) => right.value - left.value).slice(0, 4);
-    subscriptions.forEach((subscription) => appendChart(
-      charts,
-      `${subscription.label} monthly spend`,
-      "Actual cost by usage date",
-      (panel) => renderColumns(panel, groupTotals(rows.filter((row) => String(row.subscriptionId || "Unspecified") === subscription.label), "usageDate")),
-    ));
+    subscriptions.forEach((subscription) => {
+      const subscriptionRows = rows.filter((row) => String(row.subscriptionId || "Unspecified") === subscription.label);
+      const dailySpend = groupTotals(subscriptionRows, "usageDate").map((entry) => ({
+        ...entry,
+        displayLabel: formatUsageDate(entry.label),
+        onActivate: () => openSpendDrilldown(
+          subscription.label,
+          entry.label,
+          subscriptionRows.filter((row) => String(row.usageDate || "Unspecified") === entry.label),
+        ),
+      }));
+      appendChart(
+        charts,
+        `${subscription.label} monthly spend`,
+        "Actual cost by usage date; select a bar for meter-level detail",
+        (panel) => renderColumns(panel, dailySpend),
+      );
+    });
     return;
   }
 
@@ -1208,7 +1332,25 @@ function renderResults(data) {
     results.appendChild(buildArrayTable("Recommendations", data.recommendations));
   }
   if (Array.isArray(data.rows)) {
-    results.appendChild(buildArrayTable("Rows", data.rows));
+    const costRowColumns = visualReportDomains.has(data.domain)
+      ? [
+        "usageDate",
+        "meterCategory",
+        "meterSubCategory",
+        "meterName",
+        "unitOfMeasure",
+        "serviceName",
+        "chargeType",
+        "cost",
+        "usageQuantity",
+        "recordCount",
+        "subscriptionId",
+        "resourceGroup",
+        "resourceName",
+        "resourceId",
+      ]
+      : [];
+    results.appendChild(buildArrayTable("Rows", data.rows, costRowColumns));
   }
   if (Array.isArray(data.warnings)) {
     results.appendChild(buildArrayTable("Warnings", data.warnings.map((message) => ({ message }))));

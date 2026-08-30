@@ -401,6 +401,23 @@ button:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.report-column-interactive {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.report-column-interactive:hover,
+.report-column-interactive:focus-visible {
+  background: #ecfdf5;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.report-column-interactive:hover .report-column-bar,
+.report-column-interactive:focus-visible .report-column-bar {
+  filter: brightness(0.82);
+}
+
 .report-column-track {
   display: flex;
   align-items: flex-end;

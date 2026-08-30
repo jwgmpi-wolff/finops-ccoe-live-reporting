@@ -75,7 +75,19 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
                 )
 
         if domain == ReportDomain.tenant_spend_summary:
-            rows = _aggregate_cost_rows(cost_details, ["usageDate", "subscriptionId"])
+            rows = _aggregate_cost_rows(
+                cost_details,
+                [
+                    "usageDate",
+                    "meterCategory",
+                    "meterSubCategory",
+                    "meterName",
+                    "unitOfMeasure",
+                    "serviceName",
+                    "chargeType",
+                    "subscriptionId",
+                ],
+            )
         elif domain == ReportDomain.storage_costs:
             storage_rows = [
                 row
@@ -87,17 +99,49 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
             ]
             rows = _aggregate_cost_rows(
                 storage_rows,
-                ["subscriptionId", "resourceGroup", "resourceName", "serviceName", "usageDate"],
+                [
+                    "usageDate",
+                    "meterCategory",
+                    "meterSubCategory",
+                    "meterName",
+                    "unitOfMeasure",
+                    "serviceName",
+                    "chargeType",
+                    "subscriptionId",
+                    "resourceGroup",
+                    "resourceName",
+                ],
             )
         elif domain == ReportDomain.resource_group_costs:
             rows = _aggregate_cost_rows(
                 cost_details,
-                ["subscriptionId", "resourceGroup", "resourceName", "usageDate"],
+                [
+                    "usageDate",
+                    "meterCategory",
+                    "meterSubCategory",
+                    "meterName",
+                    "unitOfMeasure",
+                    "serviceName",
+                    "chargeType",
+                    "subscriptionId",
+                    "resourceGroup",
+                    "resourceName",
+                ],
             )
         elif domain == ReportDomain.subscription_cost_summary:
             rows = _aggregate_cost_rows(
                 cost_details,
-                ["subscriptionId", "serviceName", "meterCategory", "resourceName", "usageDate"],
+                [
+                    "usageDate",
+                    "meterCategory",
+                    "meterSubCategory",
+                    "meterName",
+                    "unitOfMeasure",
+                    "serviceName",
+                    "chargeType",
+                    "subscriptionId",
+                    "resourceName",
+                ],
             )
         else:
             rows = cost_details
@@ -434,6 +478,9 @@ def _normalize_cost_row(subscription_id: str, row: dict[str, Any]) -> dict[str, 
         "resourceGroup": _first_value(row, "ResourceGroup") or "",
         "serviceName": _first_value(row, "ServiceName") or "",
         "meterCategory": _first_value(row, "MeterCategory") or "",
+        "meterSubCategory": _first_value(row, "MeterSubCategory", "MeterSubcategory") or "",
+        "meterName": _first_value(row, "Meter", "MeterName") or "",
+        "unitOfMeasure": _first_value(row, "UnitOfMeasure") or "",
         "chargeType": _first_value(row, "ChargeType") or "",
     }
 

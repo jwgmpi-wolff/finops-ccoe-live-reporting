@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+from pathlib import Path
 from fastapi.testclient import TestClient
 from datetime import UTC, datetime
 import json
@@ -23,7 +24,18 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.1.2"
+    assert response.json()["version"] == "1.1.3"
+
+
+def test_tenant_spend_columns_open_meter_level_drilldown():
+    app_script = (Path(__file__).parents[1] / "app" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "function openSpendDrilldown(subscriptionId, usageDate, rows)" in app_script
+    assert 'item.setAttribute("role", "button")' in app_script
+    assert 'event.key === "Enter" || event.key === " "' in app_script
+    assert '"meterSubCategory"' in app_script
+    assert '"unitOfMeasure"' in app_script
+    assert "select a bar for meter-level detail" in app_script
 
 
 def test_cli_login_uses_hidden_browser_flow(monkeypatch):
@@ -863,8 +875,28 @@ def test_tenant_spend_summary_aggregates_live_cost_rows_and_honors_dates(monkeyp
     async def fake_query_cost_details(self, subscription_id, start_date=None, end_date=None):
         captured[subscription_id] = (start_date, end_date)
         return [
-            {"UsageDate": "2026-08-01", "PreTaxCost": 10, "UsageQuantity": 2},
-            {"UsageDate": "2026-08-01", "PreTaxCost": 5, "UsageQuantity": 3},
+            {
+                "UsageDate": "2026-08-01",
+                "PreTaxCost": 10,
+                "UsageQuantity": 2,
+                "MeterCategory": "Virtual Machines",
+                "MeterSubCategory": "Dv5 Series",
+                "Meter": "D4 v5",
+                "UnitOfMeasure": "1 Hour",
+                "ServiceName": "Virtual Machines",
+                "ChargeType": "Usage",
+            },
+            {
+                "UsageDate": "2026-08-01",
+                "PreTaxCost": 5,
+                "UsageQuantity": 3,
+                "MeterCategory": "Virtual Machines",
+                "MeterSubCategory": "Dv5 Series",
+                "Meter": "D4 v5",
+                "UnitOfMeasure": "1 Hour",
+                "ServiceName": "Virtual Machines",
+                "ChargeType": "Usage",
+            },
         ], SourceAudit(
             source="Azure Cost Management",
             endpoint="https://management.azure.com/live-cost",
@@ -896,6 +928,12 @@ def test_tenant_spend_summary_aggregates_live_cost_rows_and_honors_dates(monkeyp
     assert report.rows == [
         {
             "usageDate": "2026-08-01",
+            "meterCategory": "Virtual Machines",
+            "meterSubCategory": "Dv5 Series",
+            "meterName": "D4 v5",
+            "unitOfMeasure": "1 Hour",
+            "serviceName": "Virtual Machines",
+            "chargeType": "Usage",
             "subscriptionId": "sub-a",
             "cost": 15.0,
             "usageQuantity": 5.0,
@@ -903,6 +941,12 @@ def test_tenant_spend_summary_aggregates_live_cost_rows_and_honors_dates(monkeyp
         },
         {
             "usageDate": "2026-08-01",
+            "meterCategory": "Virtual Machines",
+            "meterSubCategory": "Dv5 Series",
+            "meterName": "D4 v5",
+            "unitOfMeasure": "1 Hour",
+            "serviceName": "Virtual Machines",
+            "chargeType": "Usage",
             "subscriptionId": "sub-b",
             "cost": 15.0,
             "usageQuantity": 5.0,
