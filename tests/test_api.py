@@ -956,6 +956,79 @@ def test_tenant_spend_summary_aggregates_live_cost_rows_and_honors_dates(monkeyp
     assert report.live_data_confirmed is True
 
 
+def test_tenant_spend_summary_keeps_accessible_rows_when_other_subscriptions_are_denied(monkeypatch):
+    async def fake_query_cost_details(self, subscription_id, start_date=None, end_date=None):
+        if subscription_id == "sub-denied":
+            raise RuntimeError("403 Cost Management Reader access denied")
+        return [
+            {
+                "UsageDate": "2026-08-01",
+                "PreTaxCost": 25,
+                "UsageQuantity": 1,
+                "MeterCategory": "Virtual Machines",
+                "MeterSubCategory": "Dv5 Series",
+                "Meter": "D4 v5",
+                "UnitOfMeasure": "1 Hour",
+                "ServiceName": "Virtual Machines",
+                "ChargeType": "Usage",
+            }
+        ], SourceAudit(
+            source="Azure Cost Management",
+            endpoint="https://management.azure.com/live-cost",
+            duration_ms=1,
+            row_count=1,
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(AzureLiveClient, "query_cost_details", fake_query_cost_details)
+    report = asyncio.run(
+        build_report(
+            ReportDomain.tenant_spend_summary,
+            __import__("app.models", fromlist=["ReportRequest"]).ReportRequest(
+                tenant_id="tenant-a",
+                subscription_ids=["sub-accessible", "sub-denied"],
+            ),
+            bearer_token="token",
+        )
+    )
+
+    assert len(report.rows) == 1
+    assert report.rows[0]["subscriptionId"] == "sub-accessible"
+    assert report.rows[0]["cost"] == 25.0
+    assert report.live_data_confirmed is True
+    assert any("sub-denied" in warning for warning in report.warnings)
+
+
+def test_scope_options_returns_success_when_some_selected_subscriptions_are_denied(monkeypatch):
+    async def fake_query_resource_graph(self, subscription_ids, query):
+        raise RuntimeError("403 Resource Graph access denied")
+
+    async def fake_list_advisor_recommendations(self, subscription_id):
+        if subscription_id == "sub-denied":
+            raise RuntimeError("403 Advisor access denied")
+        return [{"properties": {"impact": "High"}}], SourceAudit(
+            source="Azure Advisor",
+            endpoint="https://management.azure.com/live-advisor",
+            duration_ms=1,
+            row_count=1,
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(AzureLiveClient, "query_resource_graph", fake_query_resource_graph)
+    monkeypatch.setattr(AzureLiveClient, "list_advisor_recommendations", fake_list_advisor_recommendations)
+
+    response = client.post(
+        "/api/scope-options",
+        headers={"Authorization": "Bearer token"},
+        json={"subscription_ids": ["sub-accessible", "sub-denied"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["severity"] == ["High"]
+    assert len(payload["warnings"]) == 2
+
+
 def test_quota_summary_uses_live_compute_usage_and_calculates_utilization(monkeypatch):
     async def fake_query_resource_graph(self, subscription_ids, query):
         return [{"subscriptionId": "sub-a", "location": "eastus"}], SourceAudit(

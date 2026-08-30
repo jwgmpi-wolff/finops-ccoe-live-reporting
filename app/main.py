@@ -338,6 +338,7 @@ async def get_scope_options(payload: ScopeOptionsRequest, authorization: str = H
 
     client = AzureLiveClient(token)
     source_audit = []
+    warnings: list[str] = []
 
     query = (
         "Resources "
@@ -346,8 +347,15 @@ async def get_scope_options(payload: ScopeOptionsRequest, authorization: str = H
         "| extend tagValue = tostring(tags[tagKey]) "
         "| project resourceGroup, location, tagKey, tagValue"
     )
-    rows, audit = await client.query_resource_graph(payload.subscription_ids, query)
-    source_audit.append(audit.model_dump())
+    try:
+        rows, audit = await client.query_resource_graph(payload.subscription_ids, query)
+        source_audit.append(audit.model_dump())
+    except Exception as exc:
+        rows = []
+        warnings.append(
+            "Resource Graph scope discovery was unavailable for part or all of the selected subscriptions: "
+            f"{exc}"
+        )
 
     resource_groups = sorted(
         {str(row.get("resourceGroup", "")).strip() for row in rows if str(row.get("resourceGroup", "")).strip()}
@@ -371,12 +379,17 @@ async def get_scope_options(payload: ScopeOptionsRequest, authorization: str = H
 
     severities: set[str] = set()
     for subscription_id in payload.subscription_ids[:20]:
-        recommendations, advisor_audit = await client.list_advisor_recommendations(subscription_id)
-        source_audit.append(advisor_audit.model_dump())
-        for rec in recommendations:
-            impact = rec.get("properties", {}).get("impact")
-            if impact:
-                severities.add(str(impact))
+        try:
+            recommendations, advisor_audit = await client.list_advisor_recommendations(subscription_id)
+            source_audit.append(advisor_audit.model_dump())
+            for rec in recommendations:
+                impact = rec.get("properties", {}).get("impact")
+                if impact:
+                    severities.add(str(impact))
+        except Exception as exc:
+            warnings.append(
+                f"Advisor scope discovery skipped for subscription {subscription_id}: {exc}"
+            )
 
     return {
         "resource_groups": resource_groups,
@@ -385,6 +398,7 @@ async def get_scope_options(payload: ScopeOptionsRequest, authorization: str = H
         "tag_values": tag_values_out,
         "severity": sorted(severities),
         "source_audit": source_audit,
+        "warnings": warnings,
     }
 
 
