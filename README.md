@@ -2,19 +2,7 @@
 
 A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot declarative agent. The project discovers the signed-in user's tenants and subscriptions, queries Microsoft APIs within that user's Azure RBAC boundary, produces evidence-backed recommendations, and exports reports to CSV, PDF, PowerPoint, and SQLite.
 
-## Contents
-
-- [Deploy](#deploy-buttons)
-- [Screenshots](#screenshots)
-- [Architecture](#architecture)
-- [Features](#key-features)
-- [Download for Windows](#download-for-windows)
-- [Install on Windows](#install-on-windows)
-- [Run locally](#run-locally)
-- [Deploy to Azure Functions](#deploy-to-azure-functions-flex-consumption)
-- [Build the Copilot agent](#build-the-microsoft-365-copilot-agent)
-- [Test](#testing)
-- [Regenerate with GitHub Copilot](#full-regenerate-prompt-github-copilot)
+![Live UI authentication sample](docs/screenshots/ui-auth-live.png)
 
 ## Deploy Buttons
 
@@ -22,7 +10,32 @@ A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot 
 [![Install on Windows](https://img.shields.io/badge/Install-Windows_EXE-0078d4?logo=windows&logoColor=white)](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
 [![Run locally](https://img.shields.io/badge/Run-Locally-2ea44f?logo=powershell&logoColor=white)](#run-locally)
 
-The Azure button opens the ARM template in the Azure portal and provisions the Linux App Service plan and web app. Azure Resource Manager must be able to read the template URL. For a private Enterprise Managed User repository, use [the authenticated PowerShell deployment](#deploy-to-azure-app-service), which provisions the same resources and uploads the application code.
+## Visual Overview & Capability Diagrams
+
+| Live Dashboard & Tenant Discovery | Result Inspection & Azure Handoff |
+| :---: | :---: |
+| ![Live UI authentication sample](docs/screenshots/ui-auth-live.png) | ![Live result details sample](docs/screenshots/live-result-details.png) |
+| *Live tenant/subscription discovery, filters, and graphs* | *Drilldown into individual findings with portal direct-links* |
+
+| Export Artifact Formats | Platform Capabilities & Workflows |
+| :---: | :---: |
+| ![Successful export sample](docs/screenshots/export-success.png) | ![Dashboard overview](docs/screenshots/dashboard-overview.svg) |
+| *Committed multi-format exports (CSV, PDF, PPTX, SQLite)* | *Authentication boundary, query engine, and Copilot workflows* |
+
+## Contents
+
+- [Deploy Buttons](#deploy-buttons)
+- [Visual Overview](#visual-overview--capability-diagrams)
+- [Architecture](#architecture)
+- [Features](#key-features)
+- [Download for Windows](#download-for-windows)
+- [Install on Windows](#install-on-windows)
+- [Run locally](#run-locally)
+- [Deploy to Azure Functions](#deploy-to-azure-functions-flex-consumption)
+- [Build the Copilot agent](#build-the-microsoft-365-copilot-agent)
+- [Reporting Scope Gallery](#reporting-scope-test-gallery)
+- [Test](#testing)
+- [Regenerate with GitHub Copilot](#full-regenerate-prompt-github-copilot)
 
 ## Screenshots
 
