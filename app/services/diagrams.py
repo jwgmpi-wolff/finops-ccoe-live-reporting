@@ -15,6 +15,10 @@ REPORT_DIAGRAM_SPECS = {
         "scope": "Selected subscriptions and date range",
         "logic": "Sum actual cost and usage by subscription, charge type, meter category, and usage date.",
     },
+    "budget_forecasting": {
+        "scope": "Selected subscriptions in the authenticated tenant",
+        "logic": "Summarize the current Cost Management response by subscription, service, and resource group as a baseline for budget planning.",
+    },
     "reservation_savings": {
         "scope": "Azure Cost Management and Advisor evidence in selected subscriptions",
         "logic": "Show incurred reservation cost separately from annual savings estimates returned by Azure Advisor.",
@@ -154,6 +158,13 @@ def build_report_diagram(report: ReportResult) -> dict[str, object] | None:
             _panel("Subscription share", "Percent of selected-scope cost", "donut", _group(rows, "subscriptionId")),
             _share_panel("Monthly charge-type mix", "100% cost share by purchase or usage charge", rows, "usageDate", "chargeType"),
             _panel("Cost by meter category", "Ranked service meter categories", "bars", _group(rows, "meterCategory")),
+        ]
+    elif domain == "budget_forecasting":
+        panels = [
+            _panel("Cost by subscription", "Current scoped cost baseline", "columns", _group(rows, "subscriptionId")),
+            _panel("Subscription share", "Percent of current scoped cost", "donut", _group(rows, "subscriptionId")),
+            _panel("Cost by service", "Services contributing most to the baseline", "bars", _group(rows, "serviceName")),
+            _panel("Cost by resource group", "Resource groups contributing most to the baseline", "bars", _group(rows, "resourceGroup")),
         ]
     elif domain == "reservation_savings":
         incurred = [row for row in rows if row.get("recordType") == "reservation_cost"]

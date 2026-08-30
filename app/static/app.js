@@ -758,6 +758,7 @@ function buildArrayTable(title, rows, preferredColumns = []) {
 const visualReportDomains = new Set([
   "tenant_spend_summary",
   "cost_summary",
+  "budget_forecasting",
   "reservation_savings",
   "quota_summary",
   "expiring_reservations",
@@ -1234,6 +1235,10 @@ const reportDiagramSpecs = {
     scope: "Selected subscriptions and date range",
     logic: "Sum actual cost and usage by subscription, charge type, meter category, and usage date.",
   },
+  budget_forecasting: {
+    scope: "Selected subscriptions in the authenticated tenant",
+    logic: "Summarize the current Cost Management response by subscription, service, and resource group as a baseline for budget planning.",
+  },
   reservation_savings: {
     scope: "Azure Cost Management and Advisor evidence in selected subscriptions",
     logic: "Show incurred reservation cost from Cost Management separately from annual savings estimates returned by Azure Advisor.",
@@ -1298,6 +1303,26 @@ function renderDomainDiagrams(data, charts) {
     appendChart(charts, "Cost by meter category", "Ranked service meter categories", (panel) => renderRankedBars(panel, groupTotals(rows, "meterCategory").map((entry) => ({
       ...entry,
       onActivate: () => openDrilldown("meterCategory", entry.label, rows, entry.label),
+    }))));
+    return;
+  }
+
+  if (data.domain === "budget_forecasting") {
+    appendChart(charts, "Cost by subscription", "Current scoped cost baseline", (panel) => renderColumns(panel, groupTotals(rows, "subscriptionId").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("subscriptionId", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Subscription share", "Percent of current scoped cost", (panel) => renderDonut(panel, groupTotals(rows, "subscriptionId").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("subscriptionId", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Cost by service", "Services contributing most to the baseline", (panel) => renderRankedBars(panel, groupTotals(rows, "serviceName").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("serviceName", entry.label, rows, entry.label),
+    }))));
+    appendChart(charts, "Cost by resource group", "Resource groups contributing most to the baseline", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceGroup").map((entry) => ({
+      ...entry,
+      onActivate: () => openDrilldown("resourceGroup", entry.label, rows, entry.label),
     }))));
     return;
   }

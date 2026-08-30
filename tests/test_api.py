@@ -384,6 +384,7 @@ def test_sample_inspired_domains_have_distinct_export_diagram_contracts():
     domains = [
         ReportDomain.tenant_spend_summary,
         ReportDomain.cost_summary,
+        ReportDomain.budget_forecasting,
         ReportDomain.reservation_savings,
         ReportDomain.quota_summary,
         ReportDomain.expiring_reservations,
