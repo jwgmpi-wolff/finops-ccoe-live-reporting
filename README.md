@@ -114,6 +114,8 @@ The report catalog includes live equivalents of the layouts in `SAMPLE PowerBi o
 
 Select a tenant, one or more subscriptions, an optional date range, and a report domain, then choose **Run Live Report**. Running the report again refreshes it from Microsoft APIs using the current bearer token. PDF, PowerPoint, CSV, and SQLite exports are generated from that completed run and include collection time, scope, warnings, and source audit records.
 
+The browser renders these domains as operational dashboards modeled on the sample deck: current-run KPI tiles, dated cost trend lines, and ranked subscription, service, resource-group, storage, reservation, or quota breakdowns. The detailed evidence tables remain below each visual report for traceability.
+
 Results reflect the signed-in user's Azure RBAC. Cost reports commonly require Cost Management Reader; reservation inventory requires permission to read `Microsoft.Capacity/reservationOrders` and reservations; quota reports require Resource Graph read access and `Microsoft.Compute/locations/usages/read`. A denied source is reported as a warning and never replaced with sample or fabricated rows.
 
 ## Microsoft 365 Copilot Agent

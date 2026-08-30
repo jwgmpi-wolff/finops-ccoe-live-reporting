@@ -780,12 +780,22 @@ def test_tenant_spend_summary_aggregates_live_cost_rows_and_honors_dates(monkeyp
         "sub-a": ("2026-08-01", "2026-08-31"),
         "sub-b": ("2026-08-01", "2026-08-31"),
     }
-    assert report.rows == [{
-        "usageDate": "2026-08-01",
-        "cost": 30.0,
-        "usageQuantity": 10.0,
-        "recordCount": 4,
-    }]
+    assert report.rows == [
+        {
+            "usageDate": "2026-08-01",
+            "subscriptionId": "sub-a",
+            "cost": 15.0,
+            "usageQuantity": 5.0,
+            "recordCount": 2,
+        },
+        {
+            "usageDate": "2026-08-01",
+            "subscriptionId": "sub-b",
+            "cost": 15.0,
+            "usageQuantity": 5.0,
+            "recordCount": 2,
+        },
+    ]
     assert report.live_data_confirmed is True
 
 

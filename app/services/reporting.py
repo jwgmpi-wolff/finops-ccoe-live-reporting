@@ -75,7 +75,7 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
                 )
 
         if domain == ReportDomain.tenant_spend_summary:
-            rows = _aggregate_cost_rows(cost_details, ["usageDate"])
+            rows = _aggregate_cost_rows(cost_details, ["usageDate", "subscriptionId"])
         elif domain == ReportDomain.storage_costs:
             storage_rows = [
                 row

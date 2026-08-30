@@ -565,6 +565,412 @@ function buildArrayTable(title, rows) {
   return block;
 }
 
+const visualReportDomains = new Set([
+  "tenant_spend_summary",
+  "cost_summary",
+  "reservation_savings",
+  "quota_summary",
+  "expiring_reservations",
+  "storage_costs",
+  "resource_group_costs",
+  "subscription_cost_summary",
+]);
+
+function numericValue(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatCompactNumber(value) {
+  return new Intl.NumberFormat("en-US", {
+    notation: Math.abs(value) >= 1000 ? "compact" : "standard",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: Math.abs(value) >= 1000000 ? "compact" : "standard",
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2,
+  }).format(value);
+}
+
+function groupTotals(rows, keyField, valueField = "cost") {
+  const totals = new Map();
+  for (const row of rows) {
+    const key = String(row?.[keyField] || "Unspecified");
+    totals.set(key, (totals.get(key) || 0) + numericValue(row?.[valueField]));
+  }
+  return Array.from(totals, ([label, value]) => ({ label, value }));
+}
+
+function addKpi(container, label, value, detail = "") {
+  const item = document.createElement("div");
+  item.className = "report-kpi";
+  const labelElement = document.createElement("span");
+  labelElement.className = "report-kpi-label";
+  labelElement.textContent = label;
+  const valueElement = document.createElement("strong");
+  valueElement.textContent = value;
+  item.append(labelElement, valueElement);
+  if (detail) {
+    const detailElement = document.createElement("small");
+    detailElement.textContent = detail;
+    item.appendChild(detailElement);
+  }
+  container.appendChild(item);
+}
+
+function createChartPanel(title, subtitle = "") {
+  const panel = document.createElement("section");
+  panel.className = "report-chart-panel";
+  const heading = document.createElement("h4");
+  heading.textContent = title;
+  panel.appendChild(heading);
+  if (subtitle) {
+    const supportingText = document.createElement("p");
+    supportingText.textContent = subtitle;
+    panel.appendChild(supportingText);
+  }
+  return panel;
+}
+
+function renderLineChart(panel, points, valueFormatter = formatCurrency) {
+  const chart = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  chart.setAttribute("viewBox", "0 0 760 250");
+  chart.setAttribute("role", "img");
+  chart.setAttribute("aria-label", "Cost trend over time");
+  chart.classList.add("report-line-chart");
+
+  if (!points.length) {
+    const empty = document.createElement("div");
+    empty.className = "chart-empty";
+    empty.textContent = "No dated values were returned for this scope.";
+    panel.appendChild(empty);
+    return;
+  }
+
+  const sorted = [...points].sort((left, right) => left.label.localeCompare(right.label));
+  const maxValue = Math.max(...sorted.map((point) => point.value), 1);
+  const left = 58;
+  const right = 730;
+  const top = 20;
+  const bottom = 205;
+  const xStep = sorted.length > 1 ? (right - left) / (sorted.length - 1) : 0;
+
+  for (let index = 0; index <= 4; index += 1) {
+    const y = top + ((bottom - top) * index) / 4;
+    const line = document.createElementNS(chart.namespaceURI, "line");
+    line.setAttribute("x1", left);
+    line.setAttribute("x2", right);
+    line.setAttribute("y1", y);
+    line.setAttribute("y2", y);
+    line.setAttribute("class", "chart-gridline");
+    chart.appendChild(line);
+
+    const label = document.createElementNS(chart.namespaceURI, "text");
+    label.setAttribute("x", left - 8);
+    label.setAttribute("y", y + 4);
+    label.setAttribute("text-anchor", "end");
+    label.setAttribute("class", "chart-axis-label");
+    label.textContent = formatCompactNumber(maxValue * (1 - index / 4));
+    chart.appendChild(label);
+  }
+
+  const coordinates = sorted.map((point, index) => ({
+    ...point,
+    x: sorted.length === 1 ? (left + right) / 2 : left + index * xStep,
+    y: bottom - (point.value / maxValue) * (bottom - top),
+  }));
+  const area = document.createElementNS(chart.namespaceURI, "path");
+  area.setAttribute(
+    "d",
+    `M ${coordinates[0].x} ${bottom} L ${coordinates.map((point) => `${point.x} ${point.y}`).join(" L ")} L ${coordinates.at(-1).x} ${bottom} Z`,
+  );
+  area.setAttribute("class", "chart-area");
+  chart.appendChild(area);
+
+  const path = document.createElementNS(chart.namespaceURI, "polyline");
+  path.setAttribute("points", coordinates.map((point) => `${point.x},${point.y}`).join(" "));
+  path.setAttribute("class", "chart-line");
+  chart.appendChild(path);
+
+  coordinates.forEach((point, index) => {
+    const dot = document.createElementNS(chart.namespaceURI, "circle");
+    dot.setAttribute("cx", point.x);
+    dot.setAttribute("cy", point.y);
+    dot.setAttribute("r", 4);
+    dot.setAttribute("class", "chart-point");
+    const tooltip = document.createElementNS(chart.namespaceURI, "title");
+    tooltip.textContent = `${point.label}: ${valueFormatter(point.value)}`;
+    dot.appendChild(tooltip);
+    chart.appendChild(dot);
+
+    if (index === 0 || index === coordinates.length - 1 || index % Math.ceil(coordinates.length / 6) === 0) {
+      const label = document.createElementNS(chart.namespaceURI, "text");
+      label.setAttribute("x", point.x);
+      label.setAttribute("y", 232);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("class", "chart-axis-label");
+      label.textContent = point.label.slice(0, 10);
+      chart.appendChild(label);
+    }
+  });
+  panel.appendChild(chart);
+}
+
+function buildTrendSeries(rows, seriesField) {
+  const rankedSeries = groupTotals(rows, seriesField)
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 5)
+    .map((entry) => entry.label);
+  return rankedSeries.map((seriesLabel) => ({
+    label: seriesLabel,
+    points: groupTotals(
+      rows.filter((row) => String(row?.[seriesField] || "Unspecified") === seriesLabel),
+      "usageDate",
+    ),
+  }));
+}
+
+function renderMultiLineChart(panel, series) {
+  const colors = ["#0f766e", "#2563eb", "#d97706", "#be123c", "#6d28d9"];
+  const allPoints = series.flatMap((entry) => entry.points);
+  if (!allPoints.length) {
+    renderLineChart(panel, []);
+    return;
+  }
+
+  const dates = [...new Set(allPoints.map((point) => point.label))].sort();
+  const maxValue = Math.max(...allPoints.map((point) => point.value), 1);
+  const left = 58;
+  const right = 730;
+  const top = 20;
+  const bottom = 188;
+  const xStep = dates.length > 1 ? (right - left) / (dates.length - 1) : 0;
+  const chart = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  chart.setAttribute("viewBox", "0 0 760 270");
+  chart.setAttribute("role", "img");
+  chart.setAttribute("aria-label", "Cost trend by scope");
+  chart.classList.add("report-line-chart");
+
+  for (let index = 0; index <= 4; index += 1) {
+    const y = top + ((bottom - top) * index) / 4;
+    const line = document.createElementNS(chart.namespaceURI, "line");
+    line.setAttribute("x1", left);
+    line.setAttribute("x2", right);
+    line.setAttribute("y1", y);
+    line.setAttribute("y2", y);
+    line.setAttribute("class", "chart-gridline");
+    chart.appendChild(line);
+    const label = document.createElementNS(chart.namespaceURI, "text");
+    label.setAttribute("x", left - 8);
+    label.setAttribute("y", y + 4);
+    label.setAttribute("text-anchor", "end");
+    label.setAttribute("class", "chart-axis-label");
+    label.textContent = formatCompactNumber(maxValue * (1 - index / 4));
+    chart.appendChild(label);
+  }
+
+  series.forEach((entry, seriesIndex) => {
+    const valuesByDate = new Map(entry.points.map((point) => [point.label, point.value]));
+    const coordinates = dates.map((date, index) => ({
+      label: date,
+      value: valuesByDate.get(date) || 0,
+      x: dates.length === 1 ? (left + right) / 2 : left + index * xStep,
+      y: bottom - ((valuesByDate.get(date) || 0) / maxValue) * (bottom - top),
+    }));
+    const line = document.createElementNS(chart.namespaceURI, "polyline");
+    line.setAttribute("points", coordinates.map((point) => `${point.x},${point.y}`).join(" "));
+    line.setAttribute("class", "chart-series-line");
+    line.setAttribute("stroke", colors[seriesIndex]);
+    chart.appendChild(line);
+    coordinates.forEach((point) => {
+      const dot = document.createElementNS(chart.namespaceURI, "circle");
+      dot.setAttribute("cx", point.x);
+      dot.setAttribute("cy", point.y);
+      dot.setAttribute("r", 3);
+      dot.setAttribute("fill", "#ffffff");
+      dot.setAttribute("stroke", colors[seriesIndex]);
+      dot.setAttribute("stroke-width", 2);
+      const tooltip = document.createElementNS(chart.namespaceURI, "title");
+      tooltip.textContent = `${entry.label} | ${point.label}: ${formatCurrency(point.value)}`;
+      dot.appendChild(tooltip);
+      chart.appendChild(dot);
+    });
+  });
+
+  dates.forEach((date, index) => {
+    if (index === 0 || index === dates.length - 1 || index % Math.ceil(dates.length / 6) === 0) {
+      const label = document.createElementNS(chart.namespaceURI, "text");
+      label.setAttribute("x", dates.length === 1 ? (left + right) / 2 : left + index * xStep);
+      label.setAttribute("y", 211);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("class", "chart-axis-label");
+      label.textContent = date.slice(0, 10);
+      chart.appendChild(label);
+    }
+  });
+
+  series.forEach((entry, index) => {
+    const legendX = left + (index % 3) * 220;
+    const legendY = 238 + Math.floor(index / 3) * 17;
+    const swatch = document.createElementNS(chart.namespaceURI, "line");
+    swatch.setAttribute("x1", legendX);
+    swatch.setAttribute("x2", legendX + 20);
+    swatch.setAttribute("y1", legendY);
+    swatch.setAttribute("y2", legendY);
+    swatch.setAttribute("stroke", colors[index]);
+    swatch.setAttribute("stroke-width", 4);
+    chart.appendChild(swatch);
+    const label = document.createElementNS(chart.namespaceURI, "text");
+    label.setAttribute("x", legendX + 27);
+    label.setAttribute("y", legendY + 4);
+    label.setAttribute("class", "chart-axis-label");
+    label.textContent = entry.label.length > 25 ? `${entry.label.slice(0, 22)}...` : entry.label;
+    chart.appendChild(label);
+  });
+  panel.appendChild(chart);
+}
+
+function renderRankedBars(panel, entries, valueFormatter = formatCurrency, tone = "cost") {
+  const list = document.createElement("div");
+  list.className = "report-bars";
+  const ranked = [...entries].sort((left, right) => right.value - left.value).slice(0, 10);
+  const maxValue = Math.max(...ranked.map((entry) => entry.value), 1);
+
+  if (!ranked.length) {
+    const empty = document.createElement("div");
+    empty.className = "chart-empty";
+    empty.textContent = "No values were returned for this breakdown.";
+    panel.appendChild(empty);
+    return;
+  }
+
+  ranked.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "report-bar-row";
+    const label = document.createElement("span");
+    label.className = "report-bar-label";
+    label.textContent = entry.label;
+    label.title = entry.label;
+    const track = document.createElement("span");
+    track.className = "report-bar-track";
+    const fill = document.createElement("span");
+    fill.className = `report-bar-fill ${tone}`;
+    fill.style.width = `${Math.max((entry.value / maxValue) * 100, entry.value > 0 ? 2 : 0)}%`;
+    track.appendChild(fill);
+    const value = document.createElement("strong");
+    value.textContent = valueFormatter(entry.value);
+    row.append(label, track, value);
+    list.appendChild(row);
+  });
+  panel.appendChild(list);
+}
+
+function buildVisualReport(data) {
+  if (!visualReportDomains.has(data.domain) || !Array.isArray(data.rows)) {
+    return null;
+  }
+
+  const dashboard = document.createElement("article");
+  dashboard.className = "live-report-dashboard";
+  const heading = document.createElement("div");
+  heading.className = "live-report-heading";
+  const titleGroup = document.createElement("div");
+  const eyebrow = document.createElement("span");
+  eyebrow.textContent = "Live Azure report";
+  const title = document.createElement("h3");
+  title.textContent = humanizeFieldName(data.domain);
+  titleGroup.append(eyebrow, title);
+  const freshness = document.createElement("div");
+  freshness.className = "report-freshness";
+  freshness.textContent = `Collected ${new Date(data.generated_at_utc).toLocaleString()} | ${data.subscription_scope?.length || 0} subscription(s)`;
+  heading.append(titleGroup, freshness);
+  dashboard.appendChild(heading);
+
+  const kpis = document.createElement("div");
+  kpis.className = "report-kpis";
+  const totalCost = data.rows.reduce((sum, row) => sum + numericValue(row.cost || row.savingsEstimate), 0);
+  if (data.domain === "quota_summary") {
+    const peakUtilization = Math.max(...data.rows.map((row) => numericValue(row.utilizationPercent)), 0);
+    addKpi(kpis, "Peak utilization", `${peakUtilization.toFixed(1)}%`);
+  } else if (data.domain === "expiring_reservations") {
+    const remainingDays = data.rows.map((row) => numericValue(row.remainingDays)).filter((value) => value >= 0);
+    addKpi(kpis, "Next expiration", remainingDays.length ? `${Math.min(...remainingDays)} days` : "Not available");
+  } else {
+    addKpi(kpis, data.domain === "reservation_savings" ? "Potential savings" : "Cost represented", formatCurrency(totalCost));
+  }
+  addKpi(kpis, "Live records", formatCompactNumber(data.rows.length));
+  addKpi(kpis, "Data quality", `${numericValue(data.data_quality_score).toFixed(1)}%`);
+  addKpi(kpis, "Source calls", formatCompactNumber(data.source_audit?.length || 0), data.live_data_confirmed ? "Live data confirmed" : "No source confirmed");
+  dashboard.appendChild(kpis);
+
+  const charts = document.createElement("div");
+  charts.className = "report-chart-grid";
+  const datedRows = data.rows.filter((row) => row.usageDate);
+  if (datedRows.length) {
+    const trendPanel = createChartPanel("Cost trend", "Actual cost returned by Azure Cost Management for the selected period");
+    const trendSeriesField = {
+      tenant_spend_summary: "subscriptionId",
+      subscription_cost_summary: "subscriptionId",
+      resource_group_costs: "resourceGroup",
+      storage_costs: "resourceName",
+      cost_summary: "serviceName",
+    }[data.domain];
+    if (trendSeriesField && new Set(datedRows.map((row) => row[trendSeriesField])).size > 1) {
+      renderMultiLineChart(trendPanel, buildTrendSeries(datedRows, trendSeriesField));
+    } else {
+      renderLineChart(trendPanel, groupTotals(datedRows, "usageDate"));
+    }
+    charts.appendChild(trendPanel);
+  }
+
+  let breakdownField = "serviceName";
+  let breakdownTitle = "Cost by service";
+  let valueField = "cost";
+  let formatter = formatCurrency;
+  let tone = "cost";
+  if (data.domain === "resource_group_costs") {
+    breakdownField = "resourceGroup";
+    breakdownTitle = "Cost by resource group";
+  } else if (data.domain === "subscription_cost_summary" || data.domain === "tenant_spend_summary") {
+    breakdownField = "subscriptionId";
+    breakdownTitle = "Cost by subscription";
+  } else if (data.domain === "storage_costs") {
+    breakdownField = "resourceName";
+    breakdownTitle = "Storage cost by resource";
+  } else if (data.domain === "reservation_savings") {
+    breakdownField = "recommendationType";
+    breakdownTitle = "Reservation savings opportunities";
+    valueField = "savingsEstimate";
+    tone = "savings";
+  } else if (data.domain === "quota_summary") {
+    breakdownField = "quotaName";
+    breakdownTitle = "Highest quota utilization";
+    valueField = "utilizationPercent";
+    formatter = (value) => `${value.toFixed(1)}%`;
+    tone = "quota";
+  } else if (data.domain === "expiring_reservations") {
+    breakdownField = "displayName";
+    breakdownTitle = "Reservation term remaining";
+    valueField = "remainingDays";
+    formatter = (value) => `${formatCompactNumber(value)} days`;
+    tone = "expiry";
+  }
+
+  const breakdown = groupTotals(data.rows, breakdownField, valueField);
+  if (breakdown.some((entry) => entry.label !== "Unspecified" || entry.value !== 0)) {
+    const breakdownPanel = createChartPanel(breakdownTitle, "Ranked from current authenticated tenant results");
+    renderRankedBars(breakdownPanel, breakdown, formatter, tone);
+    charts.appendChild(breakdownPanel);
+  }
+  dashboard.appendChild(charts);
+  return dashboard;
+}
+
 function renderResults(data) {
   if (completedReportVisible) {
     return;
@@ -579,6 +985,11 @@ function renderResults(data) {
   if (!data || typeof data !== "object") {
     results.textContent = formatCellValue(data);
     return;
+  }
+
+  const visualReport = buildVisualReport(data);
+  if (visualReport) {
+    results.appendChild(visualReport);
   }
 
   const summary = {};
