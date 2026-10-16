@@ -24,3 +24,15 @@ def test_windows_build_bundles_verified_cli_for_installer_and_portable_app():
     assert script.index("ExtractToDirectory") < script.index("if ($SkipInstaller)")
     assert '$env:PATH = "$env:SystemRoot\\System32;$env:SystemRoot"' in script
     assert 'Invoke-External -FilePath $bundledCli -Arguments @("version", "--output", "json")' in script
+
+
+def test_installer_checks_requirements_before_copying_prerequisites():
+    script = INSTALLER_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'Excludes: "azure-cli\\*"' in script
+    assert "Check: NeedsAuthenticationRuntime" in script
+    assert "AuthRuntimeNeeded := ResultCode <> 0" in script
+    assert "AuthRuntimeDirectory <> RuntimeDirectory" in script
+    assert "preserving existing prerequisite files" in script
+    assert "ExtractTemporaryFile('finops-runtime-check.py')" in script
+    assert "ExtractTemporaryFile('windows-runtime.json')" in script

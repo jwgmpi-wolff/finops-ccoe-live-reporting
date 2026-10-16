@@ -19,9 +19,9 @@ def runtime_directory() -> Path:
     return Path(sys.executable).resolve().parent / "azure-cli"
 
 
-def authentication_environment() -> dict[str, str]:
+def authentication_environment(*, isolated: bool = False) -> dict[str, str]:
     environment = os.environ.copy()
-    if getattr(sys, "frozen", False):
+    if isolated or getattr(sys, "frozen", False):
         profile = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "FinOpsCCoE" / "azure"
         environment["AZURE_CONFIG_DIR"] = str(profile)
         environment["AZURE_EXTENSION_DIR"] = str(profile / "cliextensions")
@@ -43,11 +43,11 @@ def _manifest() -> tuple[str, str, str]:
     return data["version"], data["url"], data["sha256"]
 
 
-def _verify_runtime(directory: Path) -> None:
+def _verify_runtime(directory: Path, *, isolated: bool = False) -> None:
     version, _, _ = _manifest()
     if not (directory / "bin" / "az.cmd").is_file():
         raise OSError("The bundled Microsoft sign-in launcher is missing.")
-    environment = authentication_environment()
+    environment = authentication_environment(isolated=isolated)
     environment["PATH"] = os.pathsep.join(
         (str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"),
          os.environ.get("SystemRoot", r"C:\Windows"))
@@ -125,3 +125,17 @@ def ensure_windows_runtime() -> bool:
             "Check your internet access or reinstall the latest complete Windows package.",
         )
         return False
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Check an installed FinOps authentication runtime.")
+    parser.add_argument("manifest", type=Path)
+    arguments = parser.parse_args()
+    RUNTIME_MANIFEST = arguments.manifest
+    try:
+        _verify_runtime(Path(sys.executable).resolve().parent, isolated=True)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"Authentication runtime needs installation or repair: {error}", file=sys.stderr)
+        raise SystemExit(1)

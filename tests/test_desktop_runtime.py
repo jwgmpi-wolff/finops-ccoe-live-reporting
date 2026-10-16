@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import runpy
 import subprocess
 import zipfile
 
@@ -154,3 +155,27 @@ def test_repair_rolls_back_if_final_replace_fails(monkeypatch, tmp_path):
         runtime._repair_runtime(destination)
     assert (destination / "previous.txt").read_text(encoding="utf-8") == "old runtime"
     assert list(tmp_path.iterdir()) == [destination]
+
+
+@pytest.mark.parametrize("healthy", [False, True])
+def test_installer_probe_returns_success_only_for_required_runtime(monkeypatch, tmp_path, healthy, capsys):
+    launcher = tmp_path / "bin" / "az.cmd"
+    launcher.parent.mkdir()
+    launcher.touch()
+    version, _, _ = runtime._manifest()
+    monkeypatch.setattr(runtime.sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(runtime.sys, "argv", [runtime.__file__, str(runtime.RUNTIME_MANIFEST)])
+    monkeypatch.setattr(
+        runtime.subprocess, "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 0, json.dumps({"azure-cli": version if healthy else "0.0.0"}), "",
+        ),
+    )
+
+    if healthy:
+        runpy.run_path(runtime.__file__, run_name="__main__")
+    else:
+        with pytest.raises(SystemExit) as error:
+            runpy.run_path(runtime.__file__, run_name="__main__")
+        assert error.value.code == 1
+        assert "needs installation or repair" in capsys.readouterr().err

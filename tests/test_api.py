@@ -26,7 +26,7 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.2.4"
+    assert response.json()["version"] == "1.2.5"
 
 
 def test_tenant_spend_columns_open_meter_level_drilldown():
