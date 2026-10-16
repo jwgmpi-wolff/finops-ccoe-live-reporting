@@ -7,7 +7,7 @@ A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot 
 ## Deploy Buttons
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjerrywolff_microsoft%2Ffinops-ccoe-live-reporting%2Fmain%2Finfra%2Fazuredeploy.json)
-[![Install on Windows](https://img.shields.io/badge/Install-Windows_EXE-0078d4?logo=windows&logoColor=white)](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
+[![Install on Windows x64 (AMD and Intel)](https://img.shields.io/badge/Install-Windows_x64_AMD_%26_Intel-0078d4?logo=windows&logoColor=white)](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
 [![Run locally](https://img.shields.io/badge/Run-Locally-2ea44f?logo=powershell&logoColor=white)](#run-locally)
 
 ## Visual Overview & Capability Diagrams
@@ -247,10 +247,14 @@ The agent API is deployed to Azure Container Apps at:
 
 ## Download for Windows
 
-[![Download Windows installer](https://img.shields.io/badge/Download-Windows_Installer-0078d4?logo=windows&logoColor=white)](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
+[![Download Windows x64 installer (AMD and Intel)](https://img.shields.io/badge/Download-Windows_x64_AMD_%26_Intel-0078d4?logo=windows&logoColor=white)](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
 [![Download portable app](https://img.shields.io/badge/Download-Portable_ZIP-4c8bf5?logo=windows&logoColor=white)](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-portable.zip)
 
 The [latest GitHub release](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest) provides two Windows x64 packages. This repository is private: sign into GitHub with an account that has repository access before downloading; otherwise GitHub returns 404.
+
+**AMD and Intel compatibility:** The same x64 installer and portable package run on both AMD64 and Intel 64 (x86-64) Windows PCs. No separate CPU-vendor download is required. These are not 32-bit x86 or native ARM64 builds.
+
+The installer is also available from the [jerrywolff_microsoft repository release](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe). Use the repository your GitHub account can access.
 
 | Package | Use |
 | --- | --- |
