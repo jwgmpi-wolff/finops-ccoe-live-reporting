@@ -7,7 +7,7 @@ A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot 
 ## Deploy Buttons
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjerrywolff_microsoft%2Ffinops-ccoe-live-reporting%2Fmain%2Finfra%2Fazuredeploy.json)
-[![Install on Windows](https://img.shields.io/badge/Install-Windows_EXE-0078d4?logo=windows&logoColor=white)](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
+[![Install on Windows](https://img.shields.io/badge/Install-Windows_EXE-0078d4?logo=windows&logoColor=white)](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
 [![Run locally](https://img.shields.io/badge/Run-Locally-2ea44f?logo=powershell&logoColor=white)](#run-locally)
 
 ## Visual Overview & Capability Diagrams
@@ -247,10 +247,10 @@ The agent API is deployed to Azure Container Apps at:
 
 ## Download for Windows
 
-[![Download Windows installer](https://img.shields.io/badge/Download-Windows_Installer-0078d4?logo=windows&logoColor=white)](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
-[![Download portable app](https://img.shields.io/badge/Download-Portable_ZIP-4c8bf5?logo=windows&logoColor=white)](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-portable.zip)
+[![Download Windows installer](https://img.shields.io/badge/Download-Windows_Installer-0078d4?logo=windows&logoColor=white)](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)
+[![Download portable app](https://img.shields.io/badge/Download-Portable_ZIP-4c8bf5?logo=windows&logoColor=white)](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-portable.zip)
 
-The [latest GitHub release](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest) provides two Windows x64 packages:
+The [latest GitHub release](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest) provides two Windows x64 packages. This repository is private: sign into GitHub with an account that has repository access before downloading; otherwise GitHub returns 404.
 
 | Package | Use |
 | --- | --- |
@@ -323,7 +323,7 @@ When GitHub-hosted runners are enabled, maintainers publish both packages by pus
 
 ```powershell
 git tag v1.1.3
-git push origin v1.1.3
+git push jwgmpi-wolff v1.1.3
 ```
 
 If enterprise policy disables GitHub-hosted runners, build locally and publish the same assets with GitHub CLI authentication for the repository owner:
@@ -337,7 +337,7 @@ $lines = foreach ($asset in $assets) {
    "$hash  $([System.IO.Path]::GetFileName($asset))"
 }
 $lines | Set-Content ".\dist\SHA256SUMS.txt" -Encoding ascii
-gh release create v1.1.3 @assets ".\dist\SHA256SUMS.txt" --generate-notes
+gh release create v1.1.3 @assets ".\dist\SHA256SUMS.txt" --repo jwgmpi-wolff/finops-ccoe-live-reporting --generate-notes
 ```
 
 To verify the unpackaged application before installing:
