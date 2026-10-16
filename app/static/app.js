@@ -48,6 +48,8 @@ async function clearAuthContext(message = "Authentication context cleared", clea
   latestBearer = "";
   account = null;
   authInProgress = false;
+  document.getElementById("deviceLogin").hidden = true;
+  document.getElementById("deviceLoginCode").textContent = "";
   scopeOptionsCache = { tag_values: {} };
   subscriptionsReady = false;
   sessionStorage.removeItem(pkceVerifierKey);
@@ -1886,27 +1888,34 @@ async function beginPkceLogin() {
   if (!oauthConfig.clientId) {
     startExecution("Initiating Microsoft login...");
     authInProgress = true;
-    contextState.textContent = "Opening web-based Microsoft account selection...";
-    const loginResponse = await fetch("/api/auth/cli-login?force_reauth=true", { method: "POST" });
-    const loginPayload = await loginResponse.json();
-    if (!loginResponse.ok) {
-      renderResults(loginPayload);
-      contextState.textContent = "Microsoft login failed";
+    document.getElementById("loginBtn").disabled = true;
+    document.getElementById("cliAuthBtn").disabled = true;
+    try {
+      contextState.textContent = "Starting Microsoft sign-in...";
+      const loginParams = new URLSearchParams({
+        tenant_id: document.getElementById("authTenant").value.trim() || "organizations",
+        use_device_code: String(document.getElementById("authMethod").value === "device"),
+        force_reauth: "true",
+      });
+      const loginResponse = await fetch(`/api/auth/cli-login?${loginParams}`, { method: "POST" });
+      const loginPayload = await loginResponse.json();
+      if (!loginResponse.ok) {
+        throw new Error(typeof loginPayload.detail === "string" ? loginPayload.detail : JSON.stringify(loginPayload));
+      }
+      renderResults({ microsoft_login: loginPayload.status, details: loginPayload.message });
+      contextState.textContent = loginPayload.message;
+      const completed = await waitForCliSessionReady();
+      stopExecution(completed ? "Login completed" : "Login cancelled");
+    } catch (error) {
+      contextState.textContent = `Sign-in failed: ${String(error)}. Your organization may require admin consent or a different sign-in method.`;
+      renderResults({ sign_in_error: String(error) });
+      stopExecution("Login failed");
+    } finally {
       authInProgress = false;
-      stopExecution("Microsoft login failed");
-      return;
+      document.getElementById("loginBtn").disabled = false;
+      document.getElementById("cliAuthBtn").disabled = false;
+      document.getElementById("deviceLogin").hidden = true;
     }
-    renderResults({ microsoft_login: loginPayload.status, details: loginPayload.message });
-    contextState.textContent = "Microsoft sign-in opened in your browser. Waiting for completion...";
-
-    const loginComplete = await waitForCliSessionReady();
-    if (!loginComplete) {
-      contextState.textContent = "Waiting timed out. Complete sign-in and click Use Azure CLI Session.";
-      stopExecution("Login wait timed out");
-    } else {
-      stopExecution("Login completed");
-    }
-    authInProgress = false;
     return;
   }
 
@@ -1933,10 +1942,25 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForCliSessionReady(maxAttempts = 30, intervalMs = 2000) {
+async function waitForCliSessionReady(maxAttempts = 300, intervalMs = 2000) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const ok = await loginWithCliSession({ silent: true, loadContext: true });
-    if (ok) {
+    const response = await fetch("/api/auth/cli-login-status");
+    const status = await response.json();
+    if (!response.ok) {
+      throw new Error(status.detail || "Microsoft sign-in failed.");
+    }
+    if (status.status === "not_started") {
+      return false;
+    }
+    if (status.user_code) {
+      document.getElementById("deviceLoginCode").textContent = status.user_code;
+      document.getElementById("deviceLogin").hidden = false;
+    }
+    if (status.status === "completed") {
+      const ok = await loginWithCliSession({ silent: true, loadContext: true });
+      if (!ok) {
+        throw new Error("Sign-in completed but Azure CLI could not provide an Azure token. Try Use Azure CLI Session for details.");
+      }
       contextState.textContent = "Microsoft login complete and context loaded";
       renderResults({ microsoft_login: "completed", attempts: attempt, source: "azure_cli" });
       return true;
@@ -1946,7 +1970,7 @@ async function waitForCliSessionReady(maxAttempts = 30, intervalMs = 2000) {
     await sleep(intervalMs);
   }
 
-  return false;
+  throw new Error("Sign-in timed out after 10 minutes. Start a new sign-in and use the new code.");
 }
 
 async function loginWithCliSession(options = {}) {
@@ -2086,7 +2110,7 @@ function showAuthConfigState() {
     renderResults(
       {
         auth: "not_configured",
-        hint: "Click Sign In with Entra to initiate Microsoft login via Azure CLI, or set FINOPS_ENTRA_CLIENT_ID for browser OAuth.",
+        hint: "Install Azure CLI, then click Sign In with Entra and use the displayed device code with your organization's Azure account. No Microsoft-domain PC is required. If your organization blocks device codes, select Browser. Administrators can configure FINOPS_ENTRA_CLIENT_ID for browser OAuth without Azure CLI.",
       }
     );
   }

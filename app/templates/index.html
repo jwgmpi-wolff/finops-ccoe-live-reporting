@@ -16,6 +16,20 @@
   <section class="card">
     <h2>Authentication</h2>
     <p>Sign in with Entra to initiate Microsoft login and retrieve a live ARM token for tenant and subscription discovery.</p>
+    <p>Works with Azure accounts from any organization; a Microsoft-domain or domain-joined PC is not required.
+      <a href="https://learn.microsoft.com/cli/azure/install-azure-cli-windows" target="_blank" rel="noopener noreferrer">Install Azure CLI</a>
+      when browser OAuth is not configured. Your organization's consent and Conditional Access policies still apply.</p>
+    <label for="authTenant">Organization tenant ID or domain (optional)</label>
+    <input id="authTenant" type="text" placeholder="organizations or contoso.onmicrosoft.com" autocomplete="off" />
+    <label for="authMethod">Azure CLI sign-in method</label>
+    <select id="authMethod">
+      <option value="device">Device code (no localhost callback)</option>
+      <option value="browser">Browser (use if your organization blocks device-code sign-in)</option>
+    </select>
+    <p id="deviceLogin" hidden aria-live="polite">
+      Open <a href="https://microsoft.com/devicelogin" target="_blank" rel="noopener noreferrer">Microsoft device sign-in</a>
+      and enter <strong id="deviceLoginCode"></strong>. Only enter a code you requested here.
+    </p>
     <div id="executionIndicator" class="execution-indicator idle" aria-live="polite">
       <span id="executionSpinner" class="spinner" aria-hidden="true"></span>
       <span id="executionText">Idle</span>

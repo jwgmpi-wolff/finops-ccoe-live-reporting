@@ -281,6 +281,8 @@ if ($actual -ne $expected) { throw "Installer checksum does not match." }
 
 The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports still require the signed-in user to have Azure CLI or browser OAuth authentication and Azure RBAC access.
 
+Version 1.2.2 adds organization-neutral device-code sign-in for external organizations and non-domain PCs, an optional tenant ID/domain selector, browser fallback, a ten-minute sign-in window, and visible Azure CLI/Entra errors. See [cross-organization sign-in](#sign-in-from-another-organization-or-a-non-domain-pc) for prerequisites and policy requirements.
+
 Version 1.2.1 preserves report results when an all-subscription selection includes subscriptions the authenticated user cannot query, and retries transient Cost Management throttling. Scope discovery remains best-effort and returns access warnings without blocking the report; only data from successfully queried subscriptions is shown. Version 1.2.0 adds universal chart interactivity: all graphs created for each report scope are now clickable to open a detail dive report with meter-level cost and usage breakdowns. Clickable charts span all 8 report domains (tenant_spend_summary, cost_summary, reservation_savings, quota_summary, expiring_reservations, storage_costs, resource_group_costs, subscription_cost_summary) and all 7 chart types (vertical columns, ranked bars, donuts, share bars, line charts, and data tables). Click any chart element to drill down by dimension (subscription, region, resource, meter category, etc.), view the filtered meter breakdown, and use the back button to navigate through multiple levels. Version 1.1.3 added clickable tenant-spend bars with meter-level live cost drilldowns. Cost tables now prioritize descriptive meter category, subcategory, meter, unit, service, cost, and usage columns. Version 1.1.2 added distinct sample-matched diagram compositions to the browser, PDF, and PowerPoint outputs and separated incurred reservation cost, potential savings, and expiry evidence. Exported values remain calculated only from the current live report run.
 
 ## Install on Windows
@@ -316,10 +318,24 @@ Launch **FinOps CCoE Live Reporting** from the Start menu after Setup completes.
 
 Prerequisites for live Azure data:
 
-1. Azure CLI installed, or `FINOPS_ENTRA_CLIENT_ID` configured for direct browser OAuth.
+1. [Azure CLI installed](https://learn.microsoft.com/cli/azure/install-azure-cli-windows), or `FINOPS_ENTRA_CLIENT_ID` configured for direct browser OAuth. The Windows installer bundles the reporting app, not Azure CLI.
 2. Azure RBAC access to the tenants and subscriptions being reported. The application does not elevate the signed-in user.
 
-When the Azure CLI fallback requires authentication, the application opens Microsoft account selection in the default web browser. Azure CLI runs invisibly in the background with its Windows broker and terminal subscription selector disabled, so authentication does not open a terminal or native Windows account-picker dialog. Only one browser sign-in can be active at a time.
+### Sign in from another organization or a non-domain PC
+
+The desktop app does not require a Microsoft corporate account, Microsoft-domain computer, or domain join. Use your own organization's Microsoft Entra account with Azure RBAC access to the subscriptions you want to report.
+
+1. Install Azure CLI if it is not already installed, then restart the reporting app so it can detect the CLI.
+2. Optionally enter your organization's tenant ID or domain, such as `contoso.onmicrosoft.com`. Leaving it blank uses Azure CLI's organization-neutral account selection, with no tenant pinned.
+3. Leave **Device code (no localhost callback)** selected and click **Sign In with Entra**.
+4. Open the Microsoft device sign-in link displayed in the app, enter the displayed code, and choose your organization's account. Only enter codes you requested yourself.
+5. Keep the report page open. The app waits up to ten minutes, displays login failures rather than hiding them, and loads your Azure context after the CLI reports success.
+
+If your organization blocks device-code authentication, select **Browser** instead. Browser mode uses a temporary localhost callback; do not bookmark or reopen an old callback tab. Azure CLI runs without a terminal, with its Windows broker and terminal subscription selector disabled. Only one sign-in can be active at a time.
+
+Your organization's Conditional Access, admin consent, device-compliance, and Azure RBAC policies still apply. The app does not bypass those policies. If sign-in is rejected, the app displays the Azure CLI/Entra error for your administrator to investigate. Azure Resource Manager access is required even when the account can sign into Microsoft 365.
+
+Administrators who do not want to install Azure CLI can configure browser OAuth with their own Entra app registration. For sharing across organizations, register the app for **Accounts in any organizational directory**, grant delegated Azure Service Management `user_impersonation`, obtain any required tenant admin consent, and keep `FINOPS_ENTRA_AUTHORITY=https://login.microsoftonline.com/organizations`. A single-tenant registration only accepts accounts allowed by that tenant. Configure `FINOPS_ENTRA_REDIRECT_URI` to an exact registered SPA redirect URL; the desktop app selects a dynamic port, so a fixed local web deployment is needed for this browser-only configuration.
 
 Generated export staging files are written to `%LOCALAPPDATA%\FinOpsCCoE\exports`. When an export button is selected, Microsoft Edge prompts for the final destination and filename; browsers without the native save picker use their configured download behavior.
 

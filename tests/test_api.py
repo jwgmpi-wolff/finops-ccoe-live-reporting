@@ -4,6 +4,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from datetime import UTC, datetime
 import json
+import tempfile
+import pytest
 import app.main as main_module
 from pptx import Presentation
 from pptx.enum.text import MSO_AUTO_SIZE
@@ -24,7 +26,7 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.2.1"
+    assert response.json()["version"] == "1.2.2"
 
 
 def test_tenant_spend_columns_open_meter_level_drilldown():
@@ -60,6 +62,7 @@ def test_cli_login_uses_hidden_browser_flow(monkeypatch):
 
     monkeypatch.setattr("app.main._resolve_az_command", lambda: "az.cmd")
     monkeypatch.setattr("app.main.CLI_LOGIN_PROCESS", None)
+    monkeypatch.setattr("app.main.CLI_LOGIN_OUTPUT", None)
     monkeypatch.setattr("app.main.subprocess.Popen", fake_popen)
 
     response = client.post("/api/auth/cli-login")
@@ -67,10 +70,136 @@ def test_cli_login_uses_hidden_browser_flow(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "started"
     assert captured["kwargs"]["stdin"] is subprocess.DEVNULL
-    assert captured["kwargs"]["stdout"] is subprocess.DEVNULL
-    assert captured["kwargs"]["stderr"] is subprocess.DEVNULL
+    assert captured["kwargs"]["stdout"] is main_module.CLI_LOGIN_OUTPUT
+    assert captured["kwargs"]["stderr"] is subprocess.STDOUT
+    assert "--use-device-code" not in captured["command"]
+    assert "--tenant" not in captured["command"]
     assert captured["kwargs"]["env"]["AZURE_CORE_ENABLE_BROKER_ON_WINDOWS"] == "false"
     assert captured["kwargs"]["env"]["AZURE_CORE_LOGIN_EXPERIENCE_V2"] == "off"
+    main_module._close_cli_login_output()
+
+
+def test_cli_device_login_supports_external_tenant(monkeypatch):
+    captured = {}
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        return FakeProcess()
+
+    monkeypatch.setattr(main_module, "_resolve_az_command", lambda: "az")
+    monkeypatch.setattr(main_module, "CLI_LOGIN_PROCESS", None)
+    monkeypatch.setattr(main_module, "CLI_LOGIN_OUTPUT", None)
+    monkeypatch.setattr(main_module.subprocess, "Popen", fake_popen)
+
+    response = client.post("/api/auth/cli-login?use_device_code=true&tenant_id=contoso.onmicrosoft.com")
+
+    assert response.status_code == 200
+    assert captured["command"] == [
+        "az", "login", "--allow-no-subscriptions", "--tenant",
+        "contoso.onmicrosoft.com", "--output", "none", "--use-device-code",
+    ]
+    main_module._close_cli_login_output()
+
+
+@pytest.mark.parametrize("return_code, expected_status", [(None, "pending"), (0, "completed"), (1, None)])
+def test_cli_login_status_surfaces_challenge_completion_and_failure(monkeypatch, return_code, expected_status):
+    class FakeProcess:
+        def poll(self):
+            return return_code
+
+    with tempfile.NamedTemporaryFile(mode="w+t", encoding="utf-8", delete=False) as output:
+        output.write(
+            "To sign in, use a web browser to open https://microsoft.com/devicelogin "
+            "and enter the code ABC123XYZ to authenticate.\n"
+            "AADSTS53003: Your organization blocked this sign-in.\n"
+        )
+        output.flush()
+        monkeypatch.setattr(main_module, "CLI_LOGIN_PROCESS", FakeProcess())
+        monkeypatch.setattr(main_module, "CLI_LOGIN_OUTPUT", output)
+        try:
+            position = output.tell()
+            response = client.get("/api/auth/cli-login-status")
+            assert output.tell() == position
+            if return_code == 1:
+                assert response.status_code == 502
+                assert "AADSTS53003" in response.json()["detail"]
+            else:
+                assert response.status_code == 200
+                assert response.json()["status"] == expected_status
+                if return_code is None:
+                    assert response.json()["user_code"] == "ABC123XYZ"
+                    assert response.json()["verification_uri"] == "https://microsoft.com/devicelogin"
+                else:
+                    assert "user_code" not in response.json()
+        finally:
+            main_module._close_cli_login_output()
+
+
+def test_cli_login_missing_cli_reports_prerequisite(monkeypatch):
+    monkeypatch.setattr(main_module, "which", lambda _: None)
+    monkeypatch.setattr(main_module.FsPath, "exists", lambda _: False)
+
+    response = client.post("/api/auth/cli-login?use_device_code=true")
+
+    assert response.status_code == 502
+    assert "Azure CLI not found" in response.json()["detail"]
+
+
+def test_cli_login_rejects_invalid_tenant():
+    response = client.post("/api/auth/cli-login?tenant_id=contoso%26other")
+
+    assert response.status_code == 422
+
+
+def test_cli_login_launch_failure_cleans_up_output(monkeypatch):
+    def fail_to_start(*args, **kwargs):
+        raise OSError("Azure CLI cannot start")
+
+    monkeypatch.setattr(main_module, "_resolve_az_command", lambda: "az")
+    monkeypatch.setattr(main_module, "CLI_LOGIN_PROCESS", None)
+    monkeypatch.setattr(main_module, "CLI_LOGIN_OUTPUT", None)
+    monkeypatch.setattr(main_module.subprocess, "Popen", fail_to_start)
+
+    response = client.post("/api/auth/cli-login")
+
+    assert response.status_code == 502
+    assert "Azure CLI cannot start" in response.json()["detail"]
+    assert main_module.CLI_LOGIN_OUTPUT is None
+
+
+def test_cli_login_does_not_hide_session_reset_failure(monkeypatch):
+    monkeypatch.setattr(main_module, "_resolve_az_command", lambda: "az")
+    monkeypatch.setattr(main_module, "CLI_LOGIN_PROCESS", None)
+    monkeypatch.setattr(
+        main_module.subprocess, "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, "", "CLI session reset denied"),
+    )
+
+    response = client.post("/api/auth/cli-login?force_reauth=true")
+
+    assert response.status_code == 502
+    assert "CLI session reset denied" in response.json()["detail"]
+
+
+def test_cli_login_status_without_active_login(monkeypatch):
+    monkeypatch.setattr(main_module, "CLI_LOGIN_PROCESS", None)
+
+    response = client.get("/api/auth/cli-login-status")
+
+    assert response.json() == {"status": "not_started"}
+
+
+def test_authentication_page_explains_cross_organization_login():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="authTenant"' in response.text
+    assert 'id="deviceLoginCode"' in response.text
+    assert "domain-joined PC is not required" in response.text
 
 
 def test_cli_login_reuses_active_browser_flow(monkeypatch):

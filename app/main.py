@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import subprocess
 from shutil import which
 from pathlib import Path as FsPath
 import sys
 import threading
+import tempfile
+from typing import TextIO
 
 from fastapi import FastAPI, Header, HTTPException, Path as ApiPath, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
@@ -20,7 +23,7 @@ from app.services.azure_live import AzureLiveClient
 from app.services.exporters import export_csv, export_pdf, export_pptx, export_sqlite
 from app.services.reporting import build_report
 
-APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.2.1")
+APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.2.2")
 app = FastAPI(title=settings.app_name, version=APP_VERSION)
 
 APP_ROOT = FsPath(getattr(sys, "_MEIPASS", FsPath(__file__).resolve().parents[1]))
@@ -45,6 +48,7 @@ LAST_REPORT: dict[str, object] = {}
 EXPORT_LOCKS = {format_type: asyncio.Lock() for format_type in EXPORT_MAP}
 CLI_LOGIN_PROCESS: subprocess.Popen[str] | None = None
 CLI_LOGIN_LOCK = threading.Lock()
+CLI_LOGIN_OUTPUT: TextIO | None = None
 
 
 class ScopeOptionsRequest(BaseModel):
@@ -84,7 +88,17 @@ def _azure_cli_login_environment() -> dict[str, str]:
     environment = os.environ.copy()
     environment["AZURE_CORE_ENABLE_BROKER_ON_WINDOWS"] = "false"
     environment["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "off"
+    environment["PYTHONIOENCODING"] = "utf-8"
     return environment
+
+
+def _close_cli_login_output() -> None:
+    global CLI_LOGIN_OUTPUT
+    if CLI_LOGIN_OUTPUT is not None:
+        output_path = FsPath(CLI_LOGIN_OUTPUT.name)
+        CLI_LOGIN_OUTPUT.close()
+        CLI_LOGIN_OUTPUT = None
+        output_path.unlink(missing_ok=True)
 
 
 def _stop_cli_login_process() -> None:
@@ -92,9 +106,7 @@ def _stop_cli_login_process() -> None:
     with CLI_LOGIN_LOCK:
         process = CLI_LOGIN_PROCESS
         CLI_LOGIN_PROCESS = None
-        if process is None or process.poll() is not None:
-            return
-        if sys.platform == "win32":
+        if process is not None and process.poll() is None and sys.platform == "win32":
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(process.pid)],
                 stdin=subprocess.DEVNULL,
@@ -103,8 +115,11 @@ def _stop_cli_login_process() -> None:
                 check=False,
                 **_azure_cli_process_options(),
             )
-        else:
+        elif process is not None and process.poll() is None:
             process.terminate()
+        if process is not None:
+            process.wait(timeout=10)
+        _close_cli_login_output()
 
 
 app.add_event_handler("shutdown", _stop_cli_login_process)
@@ -212,16 +227,24 @@ async def get_cli_token():
 
 
 @app.post("/api/auth/cli-login")
-async def cli_login(tenant_id: str | None = None, force_reauth: bool = False):
+async def cli_login(
+    tenant_id: str = Query(default="organizations", pattern=r"^[a-zA-Z0-9.-]+$"),
+    force_reauth: bool = False,
+    use_device_code: bool = False,
+):
     az_cmd = _resolve_az_command()
 
     login_args = ["login", "--allow-no-subscriptions"]
-    if tenant_id:
+    # Let Azure CLI choose its neutral authority rather than treating it as a tenant ID.
+    if tenant_id.lower() not in {"organizations", "common"}:
         login_args.extend(["--tenant", tenant_id])
+    login_args.extend(["--output", "none"])
+    if use_device_code:
+        login_args.append("--use-device-code")
 
     command = _wrap_windows_cmd(az_cmd, login_args)
 
-    global CLI_LOGIN_PROCESS
+    global CLI_LOGIN_PROCESS, CLI_LOGIN_OUTPUT
     with CLI_LOGIN_LOCK:
         if CLI_LOGIN_PROCESS is not None and CLI_LOGIN_PROCESS.poll() is None:
             return {
@@ -232,7 +255,7 @@ async def cli_login(tenant_id: str | None = None, force_reauth: bool = False):
         if force_reauth:
             try:
                 for args in (["logout"], ["account", "clear"]):
-                    subprocess.run(
+                    result = subprocess.run(
                         _wrap_windows_cmd(az_cmd, args),
                         capture_output=True,
                         text=True,
@@ -240,20 +263,26 @@ async def cli_login(tenant_id: str | None = None, force_reauth: bool = False):
                         check=False,
                         **_azure_cli_process_options(),
                     )
-            except Exception:
-                pass
+                    if result.returncode != 0:
+                        raise HTTPException(status_code=502, detail=f"Could not reset Azure CLI session: {result.stderr.strip()}")
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise HTTPException(status_code=502, detail=f"Could not reset Azure CLI session: {exc}") from exc
+
+        _close_cli_login_output()
+        CLI_LOGIN_OUTPUT = tempfile.NamedTemporaryFile(mode="w+t", encoding="utf-8", delete=False)
 
         try:
             CLI_LOGIN_PROCESS = subprocess.Popen(
                 command,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=CLI_LOGIN_OUTPUT,
+                stderr=subprocess.STDOUT,
                 text=True,
                 env=_azure_cli_login_environment(),
                 **_azure_cli_process_options(),
             )
-        except Exception as exc:
+        except OSError as exc:
+            _close_cli_login_output()
             raise HTTPException(
                 status_code=502,
                 detail=f"Failed to initiate Microsoft login: {exc}",
@@ -261,8 +290,36 @@ async def cli_login(tenant_id: str | None = None, force_reauth: bool = False):
 
     return {
         "status": "started",
-        "message": "Microsoft login opened in your default browser. Complete sign-in there, then click Use Azure CLI Session.",
+        "message": (
+            "Waiting for a device sign-in code. Open the verification link and sign in with your organization's Azure account."
+            if use_device_code else
+            "Microsoft login opened in your default browser. Complete sign-in there."
+        ),
     }
+
+
+@app.get("/api/auth/cli-login-status")
+async def cli_login_status():
+    with CLI_LOGIN_LOCK:
+        if CLI_LOGIN_PROCESS is None:
+            return {"status": "not_started"}
+        return_code = CLI_LOGIN_PROCESS.poll()
+        output = ""
+        if CLI_LOGIN_OUTPUT is not None:
+            output = FsPath(CLI_LOGIN_OUTPUT.name).read_text(encoding="utf-8", errors="replace")
+        if return_code is not None:
+            if return_code != 0:
+                raise HTTPException(
+                    status_code=502,
+                    detail=output.strip()[-4000:] or f"Azure CLI sign-in exited with code {return_code}.",
+                )
+            return {"status": "completed"}
+        code = re.search(r"\bcode\s+([A-Z0-9-]{6,})\b", output)
+        return {
+            "status": "pending",
+            "user_code": code.group(1) if code else None,
+            "verification_uri": "https://microsoft.com/devicelogin" if code else None,
+        }
 
 
 @app.post("/api/auth/clear-context")
