@@ -2,6 +2,16 @@
 
 A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot declarative agent. The project discovers the signed-in user's tenants and subscriptions, queries Microsoft APIs within that user's Azure RBAC boundary, produces evidence-backed recommendations, and exports reports to CSV, PDF, PowerPoint, and SQLite.
 
+## Download Windows Installer (AMD and Intel)
+
+**[Download FinOpsCCoE-Setup.exe from jwgmpi-wolff](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)**
+
+**[Download FinOpsCCoE-Setup.exe from jerrywolff_microsoft](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)**
+
+The same Windows x64 installer supports both AMD and Intel PCs. Download it from the repository your GitHub account can access, then run it to install. No Python installation or administrator access is required. Sign into GitHub before downloading private release assets to avoid a 404.
+
+For portable downloads, checksums, and installation details, see [Download for Windows](#download-for-windows).
+
 ![Live UI authentication sample](docs/screenshots/ui-auth-live.png)
 
 ## Deploy Buttons
