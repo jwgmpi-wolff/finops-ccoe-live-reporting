@@ -1895,7 +1895,6 @@ async function beginPkceLogin() {
       const loginParams = new URLSearchParams({
         tenant_id: document.getElementById("authTenant").value.trim() || "organizations",
         use_device_code: String(document.getElementById("authMethod").value === "device"),
-        force_reauth: "true",
       });
       const loginResponse = await fetch(`/api/auth/cli-login?${loginParams}`, { method: "POST" });
       const loginPayload = await loginResponse.json();
@@ -2106,11 +2105,11 @@ async function probeBackend() {
 
 function showAuthConfigState() {
   if (!oauthConfig.clientId) {
-    loginState.textContent = "Browser OAuth not configured (CLI session sign-in available)";
+    loginState.textContent = "Ready for Microsoft sign-in via Azure CLI";
     renderResults(
       {
-        auth: "not_configured",
-        hint: "Install Azure CLI, then click Sign In with Entra and use the displayed device code with your organization's Azure account. No Microsoft-domain PC is required. If your organization blocks device codes, select Browser. Administrators can configure FINOPS_ENTRA_CLIENT_ID for browser OAuth without Azure CLI.",
+        auth: "ready",
+        hint: "Click Sign In with Entra to open Microsoft's browser sign-in and complete your organization's authentication and MFA. Azure CLI must be installed. No Microsoft-domain PC is required by the app. If a localhost callback fails, select Device code fallback. Administrators can configure FINOPS_ENTRA_CLIENT_ID for browser OAuth without Azure CLI.",
       }
     );
   }

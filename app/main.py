@@ -23,7 +23,7 @@ from app.services.azure_live import AzureLiveClient
 from app.services.exporters import export_csv, export_pdf, export_pptx, export_sqlite
 from app.services.reporting import build_report
 
-APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.2.2")
+APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.2.3")
 app = FastAPI(title=settings.app_name, version=APP_VERSION)
 
 APP_ROOT = FsPath(getattr(sys, "_MEIPASS", FsPath(__file__).resolve().parents[1]))
@@ -65,7 +65,7 @@ def _resolve_az_command() -> str:
     if not az_cmd:
         raise HTTPException(
             status_code=502,
-            detail="Azure CLI not found. Install Azure CLI or use Entra sign-in.",
+            detail="Azure CLI not found. Install Azure CLI and restart this app before retrying Sign In. Administrators can alternatively configure browser OAuth.",
         )
     return az_cmd
 
@@ -263,7 +263,11 @@ async def cli_login(
                         check=False,
                         **_azure_cli_process_options(),
                     )
-                    if result.returncode != 0:
+                    already_signed_out = (
+                        args == ["logout"]
+                        and result.stderr.strip() == "ERROR: There are no active accounts."
+                    )
+                    if result.returncode != 0 and not already_signed_out:
                         raise HTTPException(status_code=502, detail=f"Could not reset Azure CLI session: {result.stderr.strip()}")
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise HTTPException(status_code=502, detail=f"Could not reset Azure CLI session: {exc}") from exc
@@ -293,7 +297,7 @@ async def cli_login(
         "message": (
             "Waiting for a device sign-in code. Open the verification link and sign in with your organization's Azure account."
             if use_device_code else
-            "Microsoft login opened in your default browser. Complete sign-in there."
+            "Microsoft sign-in is opening in your default browser. Complete your organization's account and MFA prompts there. If no window opens, retry with Device code fallback."
         ),
     }
 

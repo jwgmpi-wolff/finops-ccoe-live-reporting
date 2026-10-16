@@ -26,7 +26,7 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.2.2"
+    assert response.json()["version"] == "1.2.3"
 
 
 def test_tenant_spend_columns_open_meter_level_drilldown():
@@ -185,6 +185,51 @@ def test_cli_login_does_not_hide_session_reset_failure(monkeypatch):
     assert "CLI session reset denied" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("force_reauth", [False, True])
+def test_cli_login_starts_without_existing_accounts(monkeypatch, force_reauth):
+    commands = []
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command == ["az", "logout"]:
+            return subprocess.CompletedProcess(command, 1, "", "ERROR: There are no active accounts.\n")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def fake_popen(command, **kwargs):
+        commands.append(command)
+        return FakeProcess()
+
+    monkeypatch.setattr(main_module, "_resolve_az_command", lambda: "az")
+    monkeypatch.setattr(main_module, "CLI_LOGIN_PROCESS", None)
+    monkeypatch.setattr(main_module, "CLI_LOGIN_OUTPUT", None)
+    monkeypatch.setattr(main_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(main_module.subprocess, "Popen", fake_popen)
+
+    response = client.post(
+        f"/api/auth/cli-login?force_reauth={str(force_reauth).lower()}&use_device_code=true"
+    )
+
+    try:
+        assert response.status_code == 200
+        assert response.json()["status"] == "started"
+        assert commands[-1] == ["az", "login", "--allow-no-subscriptions", "--output", "none", "--use-device-code"]
+        assert len(commands) == (3 if force_reauth else 1)
+    finally:
+        main_module._close_cli_login_output()
+
+
+def test_browser_sign_in_does_not_force_global_cli_logout():
+    script = (Path(__file__).parents[1] / "app" / "static" / "app.js").read_text(encoding="utf-8")
+    sign_in = script.split("async function beginPkceLogin()", 1)[1].split("function sleep(", 1)[0]
+
+    assert "force_reauth" not in sign_in
+    assert "use_device_code:" in sign_in
+
+
 def test_cli_login_status_without_active_login(monkeypatch):
     monkeypatch.setattr(main_module, "CLI_LOGIN_PROCESS", None)
 
@@ -200,6 +245,8 @@ def test_authentication_page_explains_cross_organization_login():
     assert 'id="authTenant"' in response.text
     assert 'id="deviceLoginCode"' in response.text
     assert "domain-joined PC is not required" in response.text
+    assert response.text.index('<option value="browser">') < response.text.index('<option value="device">')
+    assert "MFA steps requested by Microsoft" in response.text
 
 
 def test_cli_login_reuses_active_browser_flow(monkeypatch):
