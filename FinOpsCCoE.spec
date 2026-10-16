@@ -18,6 +18,7 @@ a = Analysis(
     datas=[
         ("app/static", "app/static"),
         ("app/templates", "app/templates"),
+        ("windows-runtime.json", "."),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],

@@ -9,10 +9,10 @@ import threading
 import time
 import webbrowser
 from tkinter import messagebox
+from urllib.error import URLError
+from urllib.request import urlopen
 
-import uvicorn
-
-from app.main import app
+from app.desktop_runtime import ensure_windows_runtime
 
 
 HOST = "127.0.0.1"
@@ -34,10 +34,11 @@ def _open_report_when_ready(port: int) -> None:
     deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         try:
-            with socket.create_connection((HOST, port), timeout=1):
-                webbrowser.open(report_url)
-                return
-        except OSError:
+            with urlopen(f"http://{HOST}:{port}/api/health", timeout=1) as response:
+                if response.status == 200:
+                    webbrowser.open(report_url)
+                    return
+        except (OSError, URLError):
             time.sleep(0.5)
 
 
@@ -87,6 +88,30 @@ def main() -> None:
     if instance_mutex is None:
         _open_existing_instance()
         return
+
+    startup_ready = False
+    try:
+        import uvicorn
+        from app.main import app
+
+        if not ensure_windows_runtime():
+            return
+        startup_ready = True
+    except (ImportError, OSError, ValueError) as exc:
+        repair = messagebox.askyesno(
+            "FinOps CCoE startup failed",
+            f"A required application component could not start.\n\n{exc}\n\n"
+            "Open the latest complete Windows installer download to repair or update the application? "
+            "Private repository downloads require GitHub sign-in.",
+        )
+        if repair:
+            webbrowser.open(
+                "https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe"
+            )
+        return
+    finally:
+        if not startup_ready and os.name == "nt" and instance_mutex != 1:
+            ctypes.windll.kernel32.CloseHandle(instance_mutex)
 
     INSTANCE_PORT_FILE.unlink(missing_ok=True)
     try:

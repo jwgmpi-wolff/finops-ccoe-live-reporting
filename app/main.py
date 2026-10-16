@@ -18,12 +18,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.desktop_runtime import authentication_environment as _azure_cli_login_environment, runtime_directory
 from app.models import AgentReportRequest, AgentReportResponse, ReportDomain, ReportRequest
 from app.services.azure_live import AzureLiveClient
 from app.services.exporters import export_csv, export_pdf, export_pptx, export_sqlite
 from app.services.reporting import build_report
 
-APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.2.3")
+APP_VERSION = os.getenv("FINOPS_APP_VERSION", "1.2.4")
 app = FastAPI(title=settings.app_name, version=APP_VERSION)
 
 APP_ROOT = FsPath(getattr(sys, "_MEIPASS", FsPath(__file__).resolve().parents[1]))
@@ -56,6 +57,11 @@ class ScopeOptionsRequest(BaseModel):
 
 
 def _resolve_az_command() -> str:
+    if getattr(sys, "frozen", False):
+        bundled_cli = runtime_directory() / "bin" / "az.cmd"
+        if bundled_cli.is_file():
+            return str(bundled_cli)
+
     az_cmd = which("az") or which("az.cmd")
     if not az_cmd:
         fallback = FsPath("C:/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd")
@@ -65,7 +71,11 @@ def _resolve_az_command() -> str:
     if not az_cmd:
         raise HTTPException(
             status_code=502,
-            detail="Azure CLI not found. Install Azure CLI and restart this app before retrying Sign In. Administrators can alternatively configure browser OAuth.",
+            detail=(
+                "The bundled authentication runtime is missing. Reinstall the latest Windows package."
+                if getattr(sys, "frozen", False) else
+                "Azure CLI not found. Install Azure CLI for source runs, or use the Windows installer with its bundled authentication runtime."
+            ),
         )
     return az_cmd
 
@@ -82,14 +92,6 @@ def _azure_cli_process_options() -> dict[str, object]:
     if sys.platform == "win32":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
     return options
-
-
-def _azure_cli_login_environment() -> dict[str, str]:
-    environment = os.environ.copy()
-    environment["AZURE_CORE_ENABLE_BROKER_ON_WINDOWS"] = "false"
-    environment["AZURE_CORE_LOGIN_EXPERIENCE_V2"] = "off"
-    environment["PYTHONIOENCODING"] = "utf-8"
-    return environment
 
 
 def _close_cli_login_output() -> None:
@@ -197,25 +199,26 @@ async def get_cli_token():
             text=True,
             timeout=120,
             check=False,
+            env=_azure_cli_login_environment(),
             **_azure_cli_process_options(),
         )
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=502,
-            detail="Azure CLI not found. Install Azure CLI or use Entra sign-in.",
+            detail="The authentication runtime could not start. Repair the Windows installation, or install Azure CLI when running from source.",
         ) from exc
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(
             status_code=504,
-            detail="Timed out getting token from Azure CLI. Confirm 'az account show' works and retry.",
+            detail="Timed out reading the saved Azure session. Retry Sign In with Entra and complete Microsoft authentication.",
         ) from exc
 
     if proc.returncode != 0:
         raise HTTPException(
             status_code=502,
             detail=(
-                "Unable to get Azure CLI token. Run 'az login' and try again. "
-                f"CLI error: {proc.stderr.strip()}"
+                "No usable saved Azure session is available. Click Sign In with Entra and complete Microsoft authentication first. "
+                f"Authentication details: {proc.stderr.strip()}"
             ),
         )
 
@@ -261,6 +264,7 @@ async def cli_login(
                         text=True,
                         timeout=60,
                         check=False,
+                        env=_azure_cli_login_environment(),
                         **_azure_cli_process_options(),
                     )
                     already_signed_out = (
@@ -346,6 +350,7 @@ async def clear_auth_context(clear_cli_session: bool = False):
                 text=True,
                 timeout=60,
                 check=False,
+                env=_azure_cli_login_environment(),
                 **_azure_cli_process_options(),
             )
             cleared["cli_session"] = proc.returncode == 0

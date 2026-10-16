@@ -1958,7 +1958,7 @@ async function waitForCliSessionReady(maxAttempts = 300, intervalMs = 2000) {
     if (status.status === "completed") {
       const ok = await loginWithCliSession({ silent: true, loadContext: true });
       if (!ok) {
-        throw new Error("Sign-in completed but Azure CLI could not provide an Azure token. Try Use Azure CLI Session for details.");
+        throw new Error("Sign-in completed but the authentication runtime could not provide an Azure token. Try Use Saved Azure Session for details.");
       }
       contextState.textContent = "Microsoft login complete and context loaded";
       renderResults({ microsoft_login: "completed", attempts: attempt, source: "azure_cli" });
@@ -1977,11 +1977,11 @@ async function loginWithCliSession(options = {}) {
   const loadContext = options.loadContext !== false;
 
   if (!silent) {
-    await clearAuthContext("Refreshing Azure CLI sign-in context...", false);
+    await clearAuthContext("Refreshing saved Azure sign-in context...", false);
   }
 
   if (!silent) {
-    startExecution("Getting Azure CLI session token...");
+    startExecution("Getting saved Azure session token...");
   }
   const response = await fetch("/api/auth/cli-token");
   const payload = await response.json();
@@ -1994,7 +1994,7 @@ async function loginWithCliSession(options = {}) {
   }
 
   latestBearer = payload.access_token || "";
-  loginState.textContent = "Signed in via Azure CLI session";
+  loginState.textContent = "Signed in with Microsoft";
   if (!silent) {
     renderResults({ auth: "ok", source: payload.source });
   }
@@ -2105,11 +2105,11 @@ async function probeBackend() {
 
 function showAuthConfigState() {
   if (!oauthConfig.clientId) {
-    loginState.textContent = "Ready for Microsoft sign-in via Azure CLI";
+    loginState.textContent = "Ready for Microsoft sign-in";
     renderResults(
       {
         auth: "ready",
-        hint: "Click Sign In with Entra to open Microsoft's browser sign-in and complete your organization's authentication and MFA. Azure CLI must be installed. No Microsoft-domain PC is required by the app. If a localhost callback fails, select Device code fallback. Administrators can configure FINOPS_ENTRA_CLIENT_ID for browser OAuth without Azure CLI.",
+        hint: "Click Sign In with Entra to open Microsoft's browser sign-in and complete your organization's authentication and MFA. The Windows package includes the authentication runtime; no separate Azure CLI installation or Microsoft-domain PC is required. If a localhost callback fails, select Device code fallback.",
       }
     );
   }
@@ -2128,7 +2128,7 @@ document.getElementById("loadTenantsBtn").addEventListener("click", async () => 
 document.getElementById("loadSubsBtn").addEventListener("click", async () => {
   if (!latestBearer) {
     renderResults(
-      { auth: "required", hint: "Click Sign In with Entra or Use Azure CLI Session first." },
+      { auth: "required", hint: "Click Sign In with Entra or Use Saved Azure Session first." },
     );
     return;
   }

@@ -17,11 +17,11 @@
     <h2>Authentication</h2>
     <p>Sign In opens Microsoft in your default browser. Choose your organization's account and complete any password, Authenticator, security-key, or other MFA steps requested by Microsoft.</p>
     <p>Works with Azure accounts from any organization; a Microsoft-domain or domain-joined PC is not required.
-      <a href="https://learn.microsoft.com/cli/azure/install-azure-cli-windows" target="_blank" rel="noopener noreferrer">Install Azure CLI</a>
-      when browser OAuth is not configured. Your organization's consent and Conditional Access policies still apply.</p>
+      The Windows package includes its authentication runtime; no separate Azure CLI installation is required.
+      Your organization's consent and Conditional Access policies still apply.</p>
     <label for="authTenant">Organization tenant ID or domain (optional)</label>
     <input id="authTenant" type="text" placeholder="organizations or contoso.onmicrosoft.com" autocomplete="off" />
-    <label for="authMethod">Azure CLI sign-in method</label>
+    <label for="authMethod">Microsoft sign-in method</label>
     <select id="authMethod">
       <option value="browser">Browser (opens Microsoft sign-in and organization MFA)</option>
       <option value="device">Device code fallback (no localhost callback)</option>
@@ -35,8 +35,10 @@
       <span id="executionText">Idle</span>
     </div>
     <button id="loginBtn">Sign In with Entra</button>
-    <button id="cliAuthBtn">Use Azure CLI Session</button>
+    <button id="cliAuthBtn">Use Saved Azure Session</button>
     <button id="clearAuthBtn">Clear Auth Context</button>
+    <a href="https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest" target="_blank" rel="noopener noreferrer">Check for app updates or download a repair installer</a>
+    <p>Use Saved Azure Session only after completing Microsoft sign-in in this app. A new installation has no saved session yet.</p>
     <span id="loginState">Not signed in</span>
     <p id="contextState">Context not loaded</p>
     <button id="loadTenantsBtn">Load Tenants</button>

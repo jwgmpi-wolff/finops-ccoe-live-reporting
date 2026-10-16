@@ -8,7 +8,7 @@ A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot 
 
 **[Download FinOpsCCoE-Setup.exe from jerrywolff_microsoft](https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)**
 
-The same Windows x64 installer supports both AMD and Intel PCs. Download it from the repository your GitHub account can access, then run it to install. No Python installation or administrator access is required. Sign into GitHub before downloading private release assets to avoid a 404.
+The same Windows x64 installer supports both AMD and Intel PCs. Download it from the repository your GitHub account can access, then run it to install. No separate Python or Azure CLI installation, domain join, or administrator access is required. Sign into GitHub before downloading private release assets to avoid a 404.
 
 For portable downloads, checksums, and installation details, see [Download for Windows](#download-for-windows).
 
@@ -279,7 +279,9 @@ $actual = (Get-FileHash ".\FinOpsCCoE-Setup.exe" -Algorithm SHA256).Hash.ToLower
 if ($actual -ne $expected) { throw "Installer checksum does not match." }
 ```
 
-The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports still require the signed-in user to have Azure CLI or browser OAuth authentication and Azure RBAC access.
+The current packages are not digitally code-signed. Windows SmartScreen may therefore request confirmation; verify the SHA-256 checksum before selecting **Run anyway**. Live reports require Microsoft authentication and Azure RBAC access. The Windows package includes the authentication runtime; no separate Azure CLI installation is required.
+
+Version 1.2.4 bundles the official portable Azure CLI authentication runtime in both Windows packages, so browser/MFA sign-in and token retrieval work without Azure CLI installed on the computer or present on PATH. The app prefers its bundled runtime and uses consistent authentication settings for sign-in and token retrieval.
 
 Version 1.2.3 makes browser sign-in the default so Sign In opens Microsoft account authentication and the organization's MFA prompts. It also fixes sign-in failing before authentication on a fresh Azure CLI profile: normal sign-in no longer forces a global CLI logout, and an explicit session reset accepts an already-signed-out account. Version 1.2.2 added organization-neutral device-code sign-in for external organizations and non-domain PCs, an optional tenant ID/domain selector, browser fallback, a ten-minute sign-in window, and visible Azure CLI/Entra errors. See [cross-organization sign-in](#sign-in-from-another-organization-or-a-non-domain-pc) for prerequisites and policy requirements.
 
@@ -318,14 +320,14 @@ Launch **FinOps CCoE Live Reporting** from the Start menu after Setup completes.
 
 Prerequisites for live Azure data:
 
-1. [Azure CLI installed](https://learn.microsoft.com/cli/azure/install-azure-cli-windows), or `FINOPS_ENTRA_CLIENT_ID` configured for direct browser OAuth. The Windows installer bundles the reporting app, not Azure CLI.
+1. Install or extract the complete Windows package. It includes the reporting app and its private authentication runtime; no separate Azure CLI installation, PATH changes, administrator rights, or domain join are required.
 2. Azure RBAC access to the tenants and subscriptions being reported. The application does not elevate the signed-in user.
 
 ### Sign in from another organization or a non-domain PC
 
 The desktop app does not require a Microsoft corporate account, Microsoft-domain computer, or domain join. Use your own organization's Microsoft Entra account with Azure RBAC access to the subscriptions you want to report.
 
-1. Install Azure CLI if it is not already installed, then restart the reporting app so it can detect the CLI.
+1. Install the latest Windows package (v1.2.4 or newer) or extract the complete portable ZIP. Do not copy only the EXE: the bundled `azure-cli` and `_internal` folders are required.
 2. Optionally enter your organization's tenant ID or domain, such as `contoso.onmicrosoft.com`. Leaving it blank uses Azure CLI's organization-neutral account selection, with no tenant pinned.
 3. Leave **Browser (opens Microsoft sign-in and organization MFA)** selected and click **Sign In with Entra**.
 4. Complete Microsoft account selection, password, and any MFA prompts in the browser that opens.
@@ -339,7 +341,19 @@ Browser mode uses a temporary localhost callback; do not bookmark or reopen an o
 
 Your organization's Conditional Access, admin consent, device-compliance, and Azure RBAC policies still apply. The app does not bypass those policies. If sign-in is rejected, the app displays the Azure CLI/Entra error for your administrator to investigate. Azure Resource Manager access is required even when the account can sign into Microsoft 365.
 
-Administrators who do not want to install Azure CLI can configure browser OAuth with their own Entra app registration. For sharing across organizations, register the app for **Accounts in any organizational directory**, grant delegated Azure Service Management `user_impersonation`, obtain any required tenant admin consent, and keep `FINOPS_ENTRA_AUTHORITY=https://login.microsoftonline.com/organizations`. A single-tenant registration only accepts accounts allowed by that tenant. Configure `FINOPS_ENTRA_REDIRECT_URI` to an exact registered SPA redirect URL; the desktop app selects a dynamic port, so a fixed local web deployment is needed for this browser-only configuration.
+The Windows packages redistribute the complete official [Azure CLI 2.91.0 x64 ZIP](https://github.com/Azure/azure-cli/releases/tag/azure-cli-2.91.0), including its bundled Python runtime, licenses, and third-party notices. The build verifies its pinned SHA-256 checksum and runs the private CLI with system CLI locations removed from PATH. The app does not install Azure CLI globally.
+
+### Automatic startup, dependency repair, and updates
+
+Opening the installed app starts its local reporting service automatically and opens the report only after the health endpoint responds successfully. Python, web-server modules, reporting libraries, and the Microsoft authentication runtime are bundled; no separate system service, pip install, or administrator setup is required on a new Windows x64 PC.
+
+At startup the app verifies that its private authentication runtime can execute and matches the tested version in `windows-runtime.json`. If it is missing, damaged, or outdated, the app requests permission to download and repair it. Repair downloads the official Microsoft distribution, verifies the pinned SHA-256 checksum, validates it before replacing the old runtime, and stops with an explicit error if repair fails. It does not silently install arbitrary modules, extensions, or services.
+
+Use **Check for app updates or download a repair installer** for whole-application updates. GitHub authentication is required to view private releases; the app does not embed GitHub credentials or claim that it can anonymously check private releases. Missing application modules prompt the user to open the complete repair installer rather than attempting unsupported runtime pip installs. Component versions are updated through tested application releases.
+
+Packaged sign-in and token retrieval use the same app-private Azure profile under `%LOCALAPPDATA%\FinOpsCCoE\azure`, separate from system Azure CLI accounts and extensions. **Use Saved Azure Session** reuses this app's earlier Microsoft sign-in; it cannot supply a token before the first sign-in. Upgrading from an older version that used the shared system profile requires signing in again once.
+
+For source runs or fixed web deployments, administrators can alternatively configure browser OAuth with their own Entra app registration. For sharing across organizations, register the app for **Accounts in any organizational directory**, grant delegated Azure Service Management `user_impersonation`, obtain any required tenant admin consent, and keep `FINOPS_ENTRA_AUTHORITY=https://login.microsoftonline.com/organizations`. A single-tenant registration only accepts accounts allowed by that tenant. Configure `FINOPS_ENTRA_REDIRECT_URI` to an exact registered SPA redirect URL; the desktop app selects a dynamic port, so a fixed local web deployment is needed for this browser-only configuration.
 
 Generated export staging files are written to `%LOCALAPPDATA%\FinOpsCCoE\exports`. When an export button is selected, Microsoft Edge prompts for the final destination and filename; browsers without the native save picker use their configured download behavior.
 
@@ -386,7 +400,7 @@ The browser address will contain a dynamically selected port, for example `http:
 
 - Python 3.11 or newer
 - PowerShell 7 or Windows PowerShell 5.1
-- Azure CLI for local CLI authentication and Azure deployment
+- Azure CLI for authentication when running from Python source, and for Azure deployment (already bundled in the Windows packages)
 - An Azure account with access to at least one subscription
 - Microsoft 365 Agents Toolkit when validating or publishing the Copilot agent
 - Microsoft 365 Copilot and custom app upload enabled in the publishing tenant

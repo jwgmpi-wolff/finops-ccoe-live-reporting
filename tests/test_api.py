@@ -26,7 +26,7 @@ def test_health_reports_deployment_version():
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.2.3"
+    assert response.json()["version"] == "1.2.4"
 
 
 def test_tenant_spend_columns_open_meter_level_drilldown():
@@ -149,6 +149,64 @@ def test_cli_login_missing_cli_reports_prerequisite(monkeypatch):
     assert "Azure CLI not found" in response.json()["detail"]
 
 
+def test_installed_app_uses_bundled_cli_without_path(monkeypatch, tmp_path):
+    executable = tmp_path / "Programs With Spaces" / "FinOpsCCoE.exe"
+    bundled_cli = executable.parent / "azure-cli" / "bin" / "az.cmd"
+    bundled_cli.parent.mkdir(parents=True)
+    bundled_cli.touch()
+    monkeypatch.setattr(main_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(main_module.sys, "executable", str(executable))
+
+    def no_system_search(_):
+        raise AssertionError("Bundled sign-in must not depend on a system CLI or PATH")
+
+    monkeypatch.setattr(main_module, "which", no_system_search)
+
+    assert main_module._resolve_az_command() == str(bundled_cli)
+
+
+def test_installed_app_missing_runtime_requests_repair(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(main_module.sys, "executable", str(tmp_path / "FinOpsCCoE.exe"))
+    monkeypatch.setattr(main_module, "which", lambda _: None)
+    monkeypatch.setattr(main_module.FsPath, "exists", lambda _: False)
+
+    response = client.post("/api/auth/cli-login")
+
+    assert response.status_code == 502
+    assert "Reinstall the latest Windows package" in response.json()["detail"]
+
+
+def test_cli_token_uses_same_authentication_environment(monkeypatch):
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, "test-token\n", "")
+
+    monkeypatch.setattr(main_module, "_resolve_az_command", lambda: "az")
+    monkeypatch.setattr(main_module.subprocess, "run", fake_run)
+
+    response = client.get("/api/auth/cli-token")
+
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "test-token"
+    assert captured["env"]["AZURE_CORE_ENABLE_BROKER_ON_WINDOWS"] == "false"
+    assert captured["env"]["AZURE_CORE_LOGIN_EXPERIENCE_V2"] == "off"
+
+
+def test_installed_authentication_isolates_profile_and_extensions(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("AZURE_CONFIG_DIR", str(tmp_path / "system-cli"))
+    monkeypatch.setenv("AZURE_EXTENSION_DIR", str(tmp_path / "system-extensions"))
+
+    environment = main_module._azure_cli_login_environment()
+
+    assert environment["AZURE_CONFIG_DIR"] == str(tmp_path / "FinOpsCCoE" / "azure")
+    assert environment["AZURE_EXTENSION_DIR"] == str(tmp_path / "FinOpsCCoE" / "azure" / "cliextensions")
+
+
 def test_cli_login_rejects_invalid_tenant():
     response = client.post("/api/auth/cli-login?tenant_id=contoso%26other")
 
@@ -247,6 +305,7 @@ def test_authentication_page_explains_cross_organization_login():
     assert "domain-joined PC is not required" in response.text
     assert response.text.index('<option value="browser">') < response.text.index('<option value="device">')
     assert "MFA steps requested by Microsoft" in response.text
+    assert "no separate Azure CLI installation is required" in response.text
 
 
 def test_cli_login_reuses_active_browser_flow(monkeypatch):

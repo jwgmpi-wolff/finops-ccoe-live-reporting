@@ -58,3 +58,36 @@ def test_existing_instance_ignores_stale_port(tmp_path, monkeypatch):
     _open_existing_instance()
 
     assert opened == []
+
+
+def test_browser_waits_for_healthy_service_not_just_a_listening_socket(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    responses = iter([503, 200])
+    opened = []
+    probes = []
+
+    def fake_urlopen(url, **kwargs):
+        probes.append(url)
+        return nullcontext(SimpleNamespace(status=next(responses)))
+
+    monkeypatch.setattr(desktop_launcher, "urlopen", fake_urlopen)
+    monkeypatch.setattr(desktop_launcher.webbrowser, "open", opened.append)
+
+    desktop_launcher._open_report_when_ready(54321)
+
+    assert probes == ["http://127.0.0.1:54321/api/health"] * 2
+    assert opened == [desktop_launcher._report_url(54321)]
+
+
+def test_startup_stops_when_required_component_repair_is_declined(monkeypatch):
+    monkeypatch.setattr(desktop_launcher, "_acquire_instance_mutex", lambda: 1)
+    monkeypatch.setattr(desktop_launcher, "ensure_windows_runtime", lambda: False)
+
+    def must_not_start():
+        raise AssertionError("Do not start a partially configured application")
+
+    monkeypatch.setattr(desktop_launcher, "_reserve_open_port", must_not_start)
+
+    desktop_launcher.main()
