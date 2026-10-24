@@ -1,3 +1,5 @@
+// Copyright (c) 2026 jerry wolff
+
 const tenantSelect = document.getElementById("tenantSelect");
 const subscriptionList = document.getElementById("subscriptionList");
 const domainSelect = document.getElementById("domainSelect");
@@ -758,6 +760,7 @@ function buildArrayTable(title, rows, preferredColumns = []) {
 }
 
 const visualReportDomains = new Set([
+  "hybrid_use_benefit",
   "tenant_spend_summary",
   "cost_summary",
   "budget_forecasting",
@@ -796,10 +799,11 @@ function formatCompactNumber(value) {
   }).format(value);
 }
 
-function formatCurrency(value) {
+function formatCurrency(value, currency = "USD") {
+  const currencyCode = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: currencyCode,
     notation: Math.abs(value) >= 1000000 ? "compact" : "standard",
     maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2,
   }).format(value);
@@ -1271,6 +1275,10 @@ function appendChart(charts, title, subtitle, render) {
 }
 
 const reportDiagramSpecs = {
+  hybrid_use_benefit: {
+    scope: "Windows Server and SQL license configuration visible in selected subscriptions",
+    logic: "Count observed benefit states and products. Review candidates require entitlement validation; no savings or license ownership is inferred. Pooled databases inherit pool licensing. This is current inventory, not historical usage.",
+  },
   tenant_spend_summary: {
     scope: "Selected subscriptions in the authenticated tenant",
     logic: "Sum actual pre-tax cost by usage date, then compare each subscription as a separate monthly series.",
@@ -1296,8 +1304,8 @@ const reportDiagramSpecs = {
     logic: "Show the returned cost baseline by subscription, service, and resource group for reservation review.",
   },
   savings_plans: {
-    scope: "Current Cost Management response for selected subscriptions",
-    logic: "Show the returned cost baseline by subscription, service, and resource group for savings-plan review.",
+    scope: "Azure Cost Management Savings Plan recommendations for selected subscriptions",
+    logic: "Show Azure's 1-year and 3-year estimated savings for a trailing 30-day usage simulation, alongside hourly commitment, utilization, and coverage. These are projections, not realized savings; report date filters do not change the API lookback.",
   },
   savings_potential: {
     scope: "Cost-related Azure Advisor recommendations in selected subscriptions",
@@ -1371,6 +1379,15 @@ const reportDiagramSpecs = {
 
 function renderDomainDiagrams(data, charts) {
   const rows = data.rows;
+  if (data.domain === "hybrid_use_benefit") {
+    appendChart(charts, "Hybrid Benefit configuration", "Observed status, not proof of license entitlement",
+      (panel) => renderDonut(panel, groupCounts(rows, "benefitStatus"), formatCompactNumber));
+    appendChart(charts, "License products", "Configuration records; not owned license quantities",
+      (panel) => renderRankedBars(panel, groupCounts(rows, "licenseProduct"), formatCompactNumber, "quota"));
+    appendChart(charts, "Review candidates by subscription", "Validate qualifying licenses before enabling the benefit",
+      (panel) => renderRankedBars(panel, groupCounts(rows.filter((row) => row.reviewCandidate), "subscriptionId"), formatCompactNumber, "quota"));
+    return;
+  }
   if (data.domain === "tenant_spend_summary") {
     const subscriptions = groupTotals(rows, "subscriptionId").sort((left, right) => right.value - left.value).slice(0, 4);
     subscriptions.forEach((subscription) => {
@@ -1431,7 +1448,30 @@ function renderDomainDiagrams(data, charts) {
     return;
   }
 
-  if (["spend_visibility", "reservations", "savings_plans", "chargeback_showback"].includes(data.domain)) {
+  if (data.domain === "savings_plans") {
+    const recommendations = rows.filter((row) => row.isTopSavingsOption);
+    for (const term of ["P1Y", "P3Y"]) {
+      const termRows = recommendations.filter((row) => row.term === term);
+      const currencies = [...new Set(termRows.map((row) => row.currencyCode).filter(Boolean))].sort();
+      for (const currencyCode of currencies) {
+        const currencyRows = termRows.filter((row) => row.currencyCode === currencyCode);
+        appendChart(
+          charts,
+          `${term === "P1Y" ? "1-year" : "3-year"} estimated savings by subscription (${currencyCode})`,
+          "Azure estimate for the trailing 30-day usage window; top option per subscription",
+          (panel) => renderRankedBars(
+            panel,
+            groupTotals(currencyRows, "subscriptionId", "savingsAmount"),
+            (value) => formatCurrency(value, currencyCode),
+            "savings",
+          ),
+        );
+      }
+    }
+    return;
+  }
+
+  if (["spend_visibility", "reservations", "chargeback_showback"].includes(data.domain)) {
     appendChart(charts, "Cost by subscription", "Current scoped cost", (panel) => renderColumns(panel, groupTotals(rows, "subscriptionId")));
     appendChart(charts, "Cost by service", "Returned cost grouped by Azure service", (panel) => renderRankedBars(panel, groupTotals(rows, "serviceName")));
     appendChart(charts, "Cost by resource group", "Returned cost grouped by resource group", (panel) => renderRankedBars(panel, groupTotals(rows, "resourceGroup")));
@@ -1642,7 +1682,11 @@ function buildVisualReport(data) {
   const kpis = document.createElement("div");
   kpis.className = "report-kpis";
   const totalCost = data.rows.reduce((sum, row) => sum + numericValue(row.cost ?? row.savingsEstimate), 0);
-  if (data.domain === "quota_summary") {
+  if (data.domain === "hybrid_use_benefit") {
+    addKpi(kpis, "Benefit enabled", formatCompactNumber(data.rows.filter((row) => row.benefitStatus === "Enabled").length));
+    addKpi(kpis, "Review candidates", formatCompactNumber(data.rows.filter((row) => row.reviewCandidate).length));
+    addKpi(kpis, "Unknown configuration", formatCompactNumber(data.rows.filter((row) => row.benefitStatus === "Unknown").length));
+  } else if (data.domain === "quota_summary") {
     const peakUtilization = Math.max(...data.rows.map((row) => numericValue(row.utilizationPercent)), 0);
     addKpi(kpis, "Peak utilization", `${peakUtilization.toFixed(1)}%`);
   } else if (data.domain === "expiring_reservations") {
@@ -1656,6 +1700,26 @@ function buildVisualReport(data) {
   } else if (data.domain === "ai_token_tracking") {
     const aggregate = data.rows.find((row) => row.serviceScope === "All AI Services");
     addKpi(kpis, "AI cost represented", formatCurrency(aggregate ? numericValue(aggregate.totalCost) : data.rows.reduce((sum, row) => sum + numericValue(row.totalCost), 0)));
+  } else if (data.domain === "savings_plans") {
+    const recommendations = data.rows.filter((row) => row.isTopSavingsOption);
+    for (const term of ["P1Y", "P3Y"]) {
+      const termRows = recommendations.filter((row) => row.term === term);
+      const currencies = [...new Set(termRows.map((row) => row.currencyCode).filter(Boolean))].sort();
+      if (currencies.length === 0) {
+        addKpi(kpis, `${term === "P1Y" ? "1-year" : "3-year"} estimated savings`, "No recommendations");
+      } else {
+        for (const currencyCode of currencies) {
+          const total = termRows
+            .filter((row) => row.currencyCode === currencyCode)
+            .reduce((sum, row) => sum + numericValue(row.savingsAmount), 0);
+          addKpi(
+            kpis,
+            `${term === "P1Y" ? "1-year" : "3-year"} estimated savings (${currencyCode})`,
+            formatCurrency(total, currencyCode),
+          );
+        }
+      }
+    }
   } else {
     const advisorDomains = ["reservation_savings", "optimization", "savings_potential", "reservations_potential", "architecture_efficiency", "idle_waste_detection"];
     const isAdvisorReport = advisorDomains.includes(data.domain);
@@ -1727,7 +1791,27 @@ function renderResults(data) {
   }
   if (Array.isArray(data.rows)) {
     const costRowColumns = visualReportDomains.has(data.domain)
-      ? [
+      ? data.domain === "hybrid_use_benefit"
+        ? ["resourceName", "licenseProduct", "licenseType", "benefitStatus", "reviewCandidate",
+          "statusReason", "subscriptionId", "resourceGroup", "region", "resourceType", "resourceId"]
+        : data.domain === "savings_plans"
+        ? [
+          "term",
+          "subscriptionId",
+          "savingsAmount",
+          "currencyCode",
+          "savingsPercentage",
+          "commitmentAmount",
+          "commitmentGranularity",
+          "coveragePercentage",
+          "averageUtilizationPercentage",
+          "wastageCost",
+          "lookBackPeriod",
+          "firstConsumptionDate",
+          "lastConsumptionDate",
+          "isTopSavingsOption",
+        ]
+        : [
         "usageDate",
         "meterCategory",
         "meterSubCategory",

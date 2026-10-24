@@ -1,4 +1,4 @@
-# One-Request Live Reporting and Copilot Deployment
+# <img src="../app/static/copilot-badge.svg" width="22" height="22" alt="Copilot tooling" /> One-Request Live Reporting and Copilot Deployment
 
 Open this repository in VS Code and start GitHub Copilot Chat in **Agent** mode. Run:
 

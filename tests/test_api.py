@@ -374,7 +374,7 @@ def test_list_domains_includes_sample_inspired_live_reports():
     response = client.get("/api/domains")
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 24
+    assert len(payload) == 25
     assert {
         "tenant_spend_summary",
         "cost_summary",
@@ -384,6 +384,7 @@ def test_list_domains_includes_sample_inspired_live_reports():
         "storage_costs",
         "resource_group_costs",
         "subscription_cost_summary",
+        "hybrid_use_benefit",
     } <= {item["key"] for item in payload}
 
 
@@ -634,6 +635,7 @@ def test_sample_inspired_domains_have_distinct_export_diagram_contracts():
         ReportDomain.storage_costs,
         ReportDomain.resource_group_costs,
         ReportDomain.subscription_cost_summary,
+        ReportDomain.savings_plans,
     ]
     signatures = []
     for domain in domains:
@@ -1077,6 +1079,162 @@ def test_reservations_potential_report_uses_advisor_data(monkeypatch):
     assert report.rows
     assert any("reservation" in str(row.get("recommendationType", "")).lower() for row in report.rows)
     assert any(row.get("savingsEstimate") == 99.0 for row in report.rows)
+
+
+def test_savings_plan_recommendation_query_uses_azure_benefit_api(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"value": [{"kind": "SavingsPlan"}]}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def get(self, url, headers, params):
+            captured["url"] = url
+            captured["params"] = params
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr("app.services.azure_live.httpx.AsyncClient", FakeAsyncClient)
+
+    rows, audit = asyncio.run(
+        AzureLiveClient("test-token").query_savings_plan_recommendations("sub-a", "P1Y")
+    )
+
+    assert rows == [{"kind": "SavingsPlan"}]
+    assert captured["url"] == (
+        "https://management.azure.com/subscriptions/sub-a/providers/"
+        "Microsoft.CostManagement/benefitRecommendations"
+    )
+    assert captured["params"] == {
+        "api-version": "2026-06-01",
+        "$filter": (
+            "properties/scope eq 'Single' AND "
+            "properties/lookBackPeriod eq 'Last30Days' AND "
+            "properties/term eq 'P1Y'"
+        ),
+    }
+    assert audit.source == "Azure Cost Management Savings Plan Recommendations"
+
+
+def test_savings_plans_report_uses_cost_management_benefit_recommendations(monkeypatch):
+    queried_terms = []
+
+    async def fake_query_savings_plan_recommendations(self, subscription_id, term):
+        queried_terms.append((subscription_id, term))
+        recommendations = [
+            {
+                "kind": "SavingsPlan",
+                "name": f"{term}-lower",
+                "properties": {
+                    "armSkuName": "Compute_Savings_Plan",
+                    "scope": "Single",
+                    "term": term,
+                    "lookBackPeriod": "Last30Days",
+                    "firstConsumptionDate": "2026-09-01T00:00:00Z",
+                    "lastConsumptionDate": "2026-09-30T00:00:00Z",
+                    "totalHours": 720,
+                    "commitmentGranularity": "Hourly",
+                    "costWithoutBenefit": 1000.0,
+                    "currencyCode": "USD",
+                    "recommendationDetails": {
+                        "commitmentAmount": 1.25,
+                        "savingsAmount": 25.0,
+                        "savingsPercentage": 2.5,
+                        "coveragePercentage": 50.0,
+                        "averageUtilizationPercentage": 95.0,
+                        "wastageCost": 0.1,
+                    },
+                },
+            },
+            {
+                "kind": "SavingsPlan",
+                "name": f"{term}-highest",
+                "properties": {
+                    "armSkuName": "Compute_Savings_Plan",
+                    "scope": "Single",
+                    "term": term,
+                    "lookBackPeriod": "Last30Days",
+                    "totalHours": 720,
+                    "commitmentGranularity": "Hourly",
+                    "costWithoutBenefit": 1000.0,
+                    "currencyCode": "USD",
+                    "recommendationDetails": {
+                        "commitmentAmount": 1.5,
+                        "savingsAmount": 45.0 if term == "P1Y" else 70.0,
+                        "savingsPercentage": 4.5,
+                        "coveragePercentage": 60.0,
+                        "averageUtilizationPercentage": 92.0,
+                        "wastageCost": 0.2,
+                    },
+                },
+            },
+            {
+                "kind": "Reservation",
+                "name": f"{term}-reservation",
+                "properties": {
+                    "recommendationDetails": {"savingsAmount": 500.0},
+                },
+            },
+        ]
+        return recommendations, SourceAudit(
+            source="Azure Cost Management Savings Plan Recommendations",
+            endpoint="https://management.azure.com/mock-benefit-recommendations",
+            duration_ms=2,
+            row_count=len(recommendations),
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    async def unexpected_cost_query(self, subscription_id, timeframe="MonthToDate"):
+        raise AssertionError("Savings Plans must not use the current-cost baseline query")
+
+    monkeypatch.setattr(
+        AzureLiveClient,
+        "query_savings_plan_recommendations",
+        fake_query_savings_plan_recommendations,
+    )
+    monkeypatch.setattr(AzureLiveClient, "query_cost_management", unexpected_cost_query)
+
+    report = asyncio.run(
+        build_report(
+            ReportDomain.savings_plans,
+            __import__("app.models", fromlist=["ReportRequest"]).ReportRequest(
+                tenant_id="tenant-a",
+                subscription_ids=["sub-a"],
+                filters={
+                    "start_date": "2026-09-01",
+                    "end_date": "2026-09-30",
+                },
+                strict_live_mode=False,
+            ),
+            bearer_token="token",
+        )
+    )
+
+    assert queried_terms == [("sub-a", "P1Y"), ("sub-a", "P3Y")]
+    assert len(report.rows) == 4
+    assert all(row["recordType"] == "savings_plan_recommendation" for row in report.rows)
+    top_options = [row for row in report.rows if row["isTopSavingsOption"]]
+    assert {(row["term"], row["savingsAmount"]) for row in top_options} == {
+        ("P1Y", 45.0),
+        ("P3Y", 70.0),
+    }
+    assert report.data_quality_score == 100.0
+    assert len(report.recommendations) == 2
+    assert any("trailing 30-day usage lookback" in warning for warning in report.warnings)
+    assert all(audit.source == "Azure Cost Management Savings Plan Recommendations" for audit in report.source_audit)
 
 
 def test_ai_token_tracking_uses_filter_dates_and_dict_rows(monkeypatch):

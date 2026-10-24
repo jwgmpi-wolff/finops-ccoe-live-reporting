@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 import azure.functions as func
 
 from app.main import app as fastapi_app

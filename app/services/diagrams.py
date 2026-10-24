@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -7,13 +9,14 @@ from app.models import ReportResult
 
 
 REPORT_DIAGRAM_SPECS = {
+    "hybrid_use_benefit": ("Windows Server and SQL license configuration visible in selected subscriptions", "Count observed benefit states and products. Review candidates require entitlement validation; no savings or license ownership is inferred. Pooled databases inherit pool licensing."),
     "tenant_spend_summary": ("Selected subscriptions in the authenticated tenant", "Sum actual pre-tax cost by usage date, then compare each subscription as a separate monthly series."),
     "cost_summary": ("Selected subscriptions and date range", "Sum actual cost and usage by subscription, charge type, meter category, and usage date."),
     "budget_forecasting": ("Selected subscriptions in the authenticated tenant", "Summarize the current Cost Management response by subscription, service, and resource group as a baseline for budget planning."),
     "spend_visibility": ("Current Cost Management response for selected subscriptions", "Group returned cost by subscription, service, and resource group without synthesizing missing time-series values."),
     "optimization": ("Azure Advisor recommendations in selected subscriptions", "Summarize recommendation counts and reported annual savings estimates by recommendation, impact, and category."),
     "reservations": ("Current Cost Management response for selected subscriptions", "Show the returned cost baseline by subscription, service, and resource group for reservation review."),
-    "savings_plans": ("Current Cost Management response for selected subscriptions", "Show the returned cost baseline by subscription, service, and resource group for savings-plan review."),
+    "savings_plans": ("Azure Cost Management Savings Plan recommendations for selected subscriptions", "Show Azure's 1-year and 3-year estimated savings from a trailing 30-day usage simulation. Estimates are projections, not realized savings."),
     "savings_potential": ("Cost-related Azure Advisor recommendations in selected subscriptions", "Summarize only Advisor recommendations matched to cost and savings keywords, using reported annual savings estimates where available."),
     "reservations_potential": ("Commitment-related Azure Advisor recommendations in selected subscriptions", "Summarize only Advisor recommendations matched to reservation, savings-plan, or commitment keywords."),
     "anomaly_detection": ("Resource inventory in selected subscriptions", "Show inventory coverage available for anomaly analysis; the current source does not return a measured anomaly signal."),
@@ -165,7 +168,36 @@ def build_report_diagram(report: ReportResult) -> dict[str, object] | None:
             _panel("Cost by service", "Services contributing most to the baseline", "bars", _group(rows, "serviceName")),
             _panel("Cost by resource group", "Resource groups contributing most to the baseline", "bars", _group(rows, "resourceGroup")),
         ]
-    elif domain in {"spend_visibility", "reservations", "savings_plans", "chargeback_showback"}:
+    elif domain == "savings_plans":
+        recommendations = [row for row in rows if row.get("isTopSavingsOption")]
+        panels = []
+        for term in ("P1Y", "P3Y"):
+            for currency_code in sorted(
+                {str(row.get("currencyCode")) for row in recommendations if row.get("term") == term and row.get("currencyCode")}
+            ):
+                term_rows = [
+                    row for row in recommendations
+                    if row.get("term") == term and row.get("currencyCode") == currency_code
+                ]
+                term_label = "1-year" if term == "P1Y" else "3-year"
+                panels.append(
+                    _panel(
+                        f"{term_label} estimated savings by subscription ({currency_code})",
+                        "Azure estimate for the trailing 30-day usage window; top option per subscription",
+                        "bars",
+                        _group(term_rows, "subscriptionId", "savingsAmount"),
+                    )
+                )
+        if not panels:
+            panels = [
+                _panel(
+                    "Savings Plan recommendations",
+                    "No recommendation rows were returned for the selected subscriptions",
+                    "bars",
+                    [],
+                )
+            ]
+    elif domain in {"spend_visibility", "reservations", "chargeback_showback"}:
         panels = [
             _panel("Cost by subscription", "Current scoped cost", "columns", _group(rows, "subscriptionId")),
             _panel("Cost by service", "Returned cost grouped by Azure service", "bars", _group(rows, "serviceName")),
@@ -230,6 +262,13 @@ def build_report_diagram(report: ReportResult) -> dict[str, object] | None:
             _panel("Cost by reservation", "Actual cost returned by Cost Management", "bars", _group(incurred, ("reservationName", "reservationId"))),
             _panel("Savings by recommendation", "Annual savings estimate returned by Azure Advisor", "bars", _group(advisor, "recommendationType", "savingsEstimate")),
             _panel("Savings by impact", "Advisor impact distribution weighted by savings", "donut", _group(advisor, "impact", "savingsEstimate")),
+        ]
+    elif domain == "hybrid_use_benefit":
+        candidates = [row for row in rows if row.get("reviewCandidate")]
+        panels = [
+            _panel("Hybrid Benefit configuration", "Observed status, not proof of license entitlement", "donut", _count_group(rows, "benefitStatus"), "number"),
+            _panel("License products", "Configuration records; not owned license quantities", "bars", _count_group(rows, "licenseProduct"), "number"),
+            _panel("Review candidates by subscription", "Validate qualifying licenses before enabling the benefit", "bars", _count_group(candidates, "subscriptionId"), "number"),
         ]
     elif domain == "quota_summary":
         exceeded = [

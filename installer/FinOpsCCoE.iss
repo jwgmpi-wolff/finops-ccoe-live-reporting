@@ -1,3 +1,5 @@
+; Copyright (c) 2026 jerry wolff
+
 #define AppName "FinOps CCoE Live Reporting"
 #define AppVersion "1.2.5"
 #define AppPublisher "FinOps CCoE"

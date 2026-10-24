@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 from PyInstaller.utils.hooks import collect_submodules
 
 

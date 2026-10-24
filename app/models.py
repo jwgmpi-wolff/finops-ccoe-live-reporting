@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -19,6 +21,7 @@ class ReportDomain(str, Enum):
     optimization = "optimization"
     reservations = "reservations"
     savings_plans = "savings_plans"
+    hybrid_use_benefit = "hybrid_use_benefit"
     savings_potential = "savings_potential"
     reservations_potential = "reservations_potential"
     anomaly_detection = "anomaly_detection"

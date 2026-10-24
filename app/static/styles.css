@@ -1,3 +1,5 @@
+/* Copyright (c) 2026 jerry wolff */
+
 :root {
   --bg: #f3f4f6;
   --surface: #ffffff;
@@ -29,6 +31,12 @@ header {
 
 h1, h2 {
   margin-top: 0;
+}
+
+.copilot-icon {
+  display: inline-block;
+  vertical-align: -0.15em;
+  margin-right: 0.3rem;
 }
 
 .card {

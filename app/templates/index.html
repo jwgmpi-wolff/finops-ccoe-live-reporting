@@ -1,10 +1,11 @@
 <!DOCTYPE html>
+<!-- Copyright (c) 2026 jerry wolff -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FinOps CCoE Live Reporting</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260830-meter-drilldown" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261024-hybrid-benefit" />
 </head>
 <body>
   <header>
@@ -12,6 +13,13 @@
     <p>Analyze Azure cost, usage, governance, and optimization signals across selected tenants and subscriptions using live Microsoft APIs.</p>
     <p>Live tenant data only. No cached analysis mode.</p>
   </header>
+
+  <section class="card" aria-labelledby="copilotIntegrationTitle">
+    <h2 id="copilotIntegrationTitle"><img class="copilot-icon" src="/static/copilot-badge.svg" width="22" height="22" alt="" /> Microsoft 365 Copilot integration</h2>
+    <p>The separately installed FinOps Copilot agent can run read-only reports, including Hybrid Use Benefit, through a delegated API plugin. Your Azure RBAC remains the access boundary.</p>
+    <p><a href="/docs#/Microsoft%20365%20Copilot">Copilot report API</a> &middot; <a href="https://github.com/jerrywolff_microsoft/finops-ccoe-live-reporting/tree/main/m365-agent">Agent setup</a></p>
+    <p>This dashboard queries Azure APIs directly; it does not invoke Copilot or an MCP server. Copilot/MCP development tooling is separate from report execution.</p>
+  </section>
 
   <section class="card">
     <h2>Authentication</h2>
@@ -114,6 +122,6 @@
       redirectUri: "{{ entra_redirect_uri }}"
     };
   </script>
-  <script src="/static/app.js?v=20260830-all-scope-charts"></script>
+  <script src="/static/app.js?v=20261024-hybrid-benefit"></script>
 </body>
 </html>

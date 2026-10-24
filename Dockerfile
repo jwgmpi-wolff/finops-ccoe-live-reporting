@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 FROM python:3.11-slim
 
 ARG APP_VERSION=1.0.4

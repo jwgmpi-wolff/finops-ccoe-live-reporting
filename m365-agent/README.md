@@ -1,4 +1,4 @@
-# FinOps CCoE Agent for Microsoft 365 Copilot
+# <img src="../app/static/copilot-badge.svg" width="22" height="22" alt="Copilot integration" /> FinOps CCoE Agent for Microsoft 365 Copilot
 
 This folder packages the existing live FinOps API as a Microsoft 365 declarative agent with a read-only API plugin.
 
@@ -11,6 +11,10 @@ This folder packages the existing live FinOps API as a Microsoft 365 declarative
 5. The user's tenant membership and Azure RBAC remain the authorization boundary.
 
 The agent does not have write actions and does not use application-wide Azure permissions.
+
+The `hybrid_use_benefit` domain returns current Windows Server and SQL license configuration, not license ownership or guaranteed savings. The same source audit, status reasons, and coverage warnings used by the dashboard are returned through the bounded agent API. Confirm license entitlement before changing any Azure Hybrid Benefit setting.
+
+The small Copilot indicator is an original integration badge, not Microsoft's official product logo. It marks the Copilot integration and development documentation only. The dashboard reports use direct Azure APIs, and this application does not host or invoke an MCP server at runtime.
 
 ## Tenant prerequisites
 

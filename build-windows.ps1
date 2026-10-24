@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 param(
   [switch]$SkipInstaller
 )

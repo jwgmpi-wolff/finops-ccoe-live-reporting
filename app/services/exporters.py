@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 from __future__ import annotations
 
 import csv
@@ -17,7 +19,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Inches, Pt
 
-from app.models import ReportResult
+from app.models import ReportDomain, ReportResult
 from app.services.diagrams import build_report_diagram
 
 
@@ -146,6 +148,13 @@ def build_executive_brief(report: ReportResult) -> dict[str, object]:
     }
 
 
+def _report_context(report: ReportResult) -> dict[str, object]:
+    return report.model_dump(
+        mode="json",
+        exclude={"rows", "enrichment_audit", "ai_token_tracking", "ai_token_summary"},
+    )
+
+
 def export_csv(report: ReportResult) -> Path:
     ensure_export_dir()
     output = EXPORT_DIR / f"{report.domain.value}_{report.generated_at_utc.strftime('%Y%m%d_%H%M%S')}.csv"
@@ -162,6 +171,8 @@ def export_csv(report: ReportResult) -> Path:
         for row in report.ai_token_summary
     ]
     rows = base_rows + ai_summary_rows + ai_rows
+    if report.domain == ReportDomain.hybrid_use_benefit:
+        rows.append({"dataset": "report_context", "reportContext": _report_context(report)})
     headers = sorted(set().union(*(r.keys() for r in rows))) if rows else ["dataset"]
     with output.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
@@ -180,6 +191,15 @@ def export_sqlite(report: ReportResult) -> Path:
     output = EXPORT_DIR / f"{report.domain.value}_{report.generated_at_utc.strftime('%Y%m%d_%H%M%S')}.sqlite"
     conn = sqlite3.connect(output)
     cur = conn.cursor()
+
+    if report.domain == ReportDomain.hybrid_use_benefit:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS report_context (domain TEXT, context_json TEXT)"
+        )
+        cur.execute(
+            "INSERT INTO report_context (domain, context_json) VALUES (?, ?)",
+            (report.domain.value, json.dumps(_report_context(report))),
+        )
 
     cur.execute(
         """

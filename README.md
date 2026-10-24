@@ -178,7 +178,7 @@ Microsoft 365 Copilot hosts the language model. The API plugin forwards a delega
 
 1. Live-only reporting pipeline (no mock data).
 2. Tenant and subscription discovery after sign-in.
-3. 24 FinOps reporting domains, including AI token tracking and refreshable EA-style cost, reservation, quota, storage, resource-group, and subscription summaries.
+3. 25 FinOps reporting domains, including Azure Hybrid Benefit license configuration, AI token tracking, and refreshable EA-style cost, reservation, quota, storage, resource-group, and subscription summaries.
 4. Data enrichment for opaque IDs and quality scoring.
 5. Export support for CSV, PDF, PPTX, and SQLite.
 6. Strict live validation mode for trust gating.
@@ -217,9 +217,23 @@ The browser, PDF, and PowerPoint outputs render a distinct diagram composition f
 
 Each dashboard states its authenticated scope and exact aggregation logic. The detailed evidence tables remain below the diagrams for traceability.
 
-Results reflect the signed-in user's Azure RBAC. Cost reports commonly require Cost Management Reader; reservation inventory requires permission to read `Microsoft.Capacity/reservationOrders` and reservations; quota reports require Resource Graph read access and `Microsoft.Compute/locations/usages/read`. A denied source is reported as a warning and never replaced with sample or fabricated rows.
+Results reflect the signed-in user's Azure RBAC. Cost reports commonly require Cost Management Reader; reservation inventory requires permission to read `Microsoft.Capacity/reservationOrders` and reservations; quota reports require Resource Graph read access and `Microsoft.Compute/locations/usages/read`. Savings Plans uses the Azure Cost Management Benefit Recommendations API, showing Azure's 1-year and 3-year estimates based on its trailing 30-day usage simulation, including the returned commitment, coverage, utilization, and wastage evidence. Each subscription's top reported option is summarized separately by term and currency; the date-range controls do not alter Azure's recommendation lookback. These are estimates, not realized or guaranteed savings. A denied source is reported as a warning and never replaced with sample or fabricated rows.
 
-## Microsoft 365 Copilot Agent
+## Azure Hybrid Benefit License Report
+
+Choose **Hybrid Use Benefit** to refresh current Windows Server VM/scale-set and SQL Database, elastic pool, Managed Instance, and SQL VM license configuration from Azure Resource Graph. Collection is read-only, paginated, and uses the existing delegated bearer token. Reader access to the selected subscriptions and resource types is normally required; results include only resources visible to that identity. Per-subscription failures remain explicit warnings while accessible subscriptions are retained.
+
+The dashboard and PDF/PowerPoint diagrams count observed benefit states, license products, and review candidates. CSV and SQLite retain the same normalized evidence fields, including raw license type, status reason, resource ID, and source audit. **Enabled** means configured, not proven license entitlement or compliance. **Not enabled** is a review candidate, not a recommendation to enable the benefit without qualifying licenses and Software Assurance. Missing/unrecognized configuration remains **Unknown**. Pooled databases are marked **Inherited (pool)** rather than counted as independent candidates; unsupported SQL tiers and non-Windows compute are marked **Not applicable**. SQL VM licensing and Windows OS licensing are distinct records and must not be summed as owned licenses.
+
+Hybrid Benefit CSV exports include a `report_context` dataset row with JSON metadata, source audit, and coverage warnings (including for empty reports). SQLite exports retain the same metadata in a `report_context` table. Evidence rows also include collection time, source endpoint, and configuration confidence.
+
+Date filters do not apply to this current inventory. Resource group, resource type, region, tag, environment, cost-center, and actionable-only filters are applied to normalized rows. The report does not estimate monetary savings, owned licenses, Linux benefits, or centralized SQL benefit allocations. Resource Graph can lag recent configuration changes.
+
+References: [Windows Server Hybrid Benefit](https://learn.microsoft.com/azure/virtual-machines/windows/hybrid-use-benefit-licensing), [SQL Hybrid Benefit](https://learn.microsoft.com/azure/azure-sql/azure-hybrid-benefit).
+
+<a id="microsoft-365-copilot-agent"></a>
+
+## <img src="app/static/copilot-badge.svg" width="22" height="22" alt="Copilot integration" /> Microsoft 365 Copilot Agent
 
 The `m365-agent` folder converts the live reporting API into a read-only declarative agent for Microsoft 365 Copilot. It includes the v1.8 agent manifest, v2.4 API plugin, constrained OpenAPI contract, OAuth packaging inputs, and a PowerShell package builder.
 
@@ -534,7 +548,9 @@ az containerapp create `
 
 Prefer managed identity with the `AcrPull` role for private registry access. If the deploying account cannot create role assignments, a registry credential can be stored as a Container Apps secret instead; never print or commit that credential.
 
-## Build the Microsoft 365 Copilot Agent
+<a id="build-the-microsoft-365-copilot-agent"></a>
+
+## <img src="app/static/copilot-badge.svg" width="22" height="22" alt="Copilot integration" /> Build the Microsoft 365 Copilot Agent
 
 After deploying the HTTPS API, create the OAuth authentication configuration described in [m365-agent/README.md](m365-agent/README.md), then build the package:
 
@@ -562,7 +578,9 @@ When `FINOPS_ENTRA_CLIENT_ID` is not set, local Azure CLI session authentication
 
 Register the deployed App Service URL as a Single-page application redirect URI on the tenant-owned Entra application.
 
-## Deploy Live Reporting and Copilot
+<a id="deploy-live-reporting-and-copilot"></a>
+
+## <img src="app/static/copilot-badge.svg" width="22" height="22" alt="Copilot tooling" /> Deploy Live Reporting and Copilot
 
 In VS Code GitHub Copilot Chat, run `/deploy-finops-copilot` for a one-request workflow that deploys this live-reporting app and its Microsoft 365 Copilot agent package from `m365-agent`.
 
@@ -574,7 +592,9 @@ See [One-Request Copilot Deployment](docs/COPILOT_ONE_REQUEST_DEPLOYMENT.md).
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-## Full Regenerate Prompt (GitHub Copilot)
+<a id="full-regenerate-prompt-github-copilot"></a>
+
+## <img src="app/static/copilot-badge.svg" width="22" height="22" alt="Copilot tooling" /> Full Regenerate Prompt (GitHub Copilot)
 
 Use this prompt in GitHub Copilot Chat to regenerate the entire project from scratch:
 

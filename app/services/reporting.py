@@ -1,9 +1,13 @@
+# Copyright (c) 2026 jerry wolff
+
 from __future__ import annotations
 
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
+
+import httpx
 
 from app.models import Recommendation, ReportDomain, ReportRequest, ReportResult
 from app.services.azure_live import AzureLiveClient
@@ -23,6 +27,7 @@ DOMAIN_RECOMMENDATION_CATEGORY: dict[ReportDomain, str] = {
     ReportDomain.optimization: "Waste elimination",
     ReportDomain.reservations: "Commitment optimization",
     ReportDomain.savings_plans: "Commitment optimization",
+    ReportDomain.hybrid_use_benefit: "License optimization",
     ReportDomain.savings_potential: "Commitment optimization",
     ReportDomain.reservations_potential: "Commitment optimization",
     ReportDomain.anomaly_detection: "Cost governance",
@@ -48,6 +53,62 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
 
     if not request.subscription_ids:
         raise ValueError("At least one subscription must be selected")
+
+    if domain == ReportDomain.hybrid_use_benefit:
+        warnings.append(
+            "Current license configuration inventory, not a license entitlement or compliance audit. "
+            "Confirm qualifying licenses and Software Assurance before enabling Azure Hybrid Benefit. "
+            "Savings and owned license quantities are not available from this source. "
+            "Coverage is limited to resources visible to the signed-in user's Azure RBAC; "
+            "Resource Graph may lag recent changes. Linux benefits and centralized SQL benefit assignments "
+            "are outside this report."
+        )
+        if request.filters.start_date or request.filters.end_date:
+            warnings.append("Date filters do not apply to current Hybrid Benefit license configuration.")
+        if request.filters.severity or request.filters.management_group:
+            warnings.append(
+                "Severity and management-group filters are not supported by this license inventory; "
+                "the explicit selected subscriptions define collection scope."
+            )
+        for subscription_id in dict.fromkeys(request.subscription_ids):
+            try:
+                await client.validate_subscription_tenant(subscription_id, request.tenant_id)
+                inventory, audit = await client.query_hybrid_benefit(subscription_id)
+                source_audit.append(audit)
+                rows.extend(
+                    {
+                        **_normalize_hybrid_benefit_row(item),
+                        "sourceService": audit.source,
+                        "sourceEndpoint": audit.endpoint,
+                        "collectedAtUtc": audit.executed_at_utc.isoformat(),
+                        "configurationConfidence": "Observed configuration only",
+                    }
+                    for item in inventory
+                )
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                guidance = (
+                    "Verify subscription access and Reader permissions for Resource Graph and the target resources."
+                    if status in (401, 403) else "Retry the query or inspect the Azure service status."
+                )
+                warnings.append(
+                    f"Hybrid Benefit inventory unavailable for selected subscription "
+                    f"{request.subscription_ids.index(subscription_id) + 1} (HTTP {status}). {guidance}"
+                )
+            except ValueError:
+                warnings.append(
+                    "Hybrid Benefit scope or response validation failed for selected subscription "
+                    f"{request.subscription_ids.index(subscription_id) + 1}. "
+                    "Confirm the tenant/subscription selection and retry; collection was skipped."
+                )
+            except (httpx.RequestError, RuntimeError) as exc:
+                warnings.append(
+                    "Hybrid Benefit inventory collection failed for selected subscription "
+                    f"{request.subscription_ids.index(subscription_id) + 1} ({type(exc).__name__}). "
+                    "Retry collection; no values were substituted."
+                )
+        rows = [row for row in rows if _hybrid_benefit_matches_filters(row, request)]
+        rows.sort(key=lambda row: str(row["resourceId"]).lower())
 
     if domain in {
         ReportDomain.tenant_spend_summary,
@@ -150,7 +211,6 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
         ReportDomain.spend_visibility,
         ReportDomain.budget_forecasting,
         ReportDomain.reservations,
-        ReportDomain.savings_plans,
         ReportDomain.chargeback_showback,
     }:
         for subscription_id in request.subscription_ids:
@@ -171,6 +231,65 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
                 warnings.append(
                     f"Cost Management query skipped for subscription {subscription_id}: {exc}"
                 )
+
+    if domain == ReportDomain.savings_plans:
+        recommendations_by_scope: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+        for subscription_id in request.subscription_ids:
+            for term in ("P1Y", "P3Y"):
+                try:
+                    recommendations, audit = await client.query_savings_plan_recommendations(
+                        subscription_id,
+                        term,
+                    )
+                    source_audit.append(audit)
+                    for item in recommendations:
+                        if str(item.get("kind", "")).lower() != "savingsplan":
+                            continue
+                        properties = item.get("properties") or {}
+                        details = properties.get("recommendationDetails") or {}
+                        row = {
+                            "recordType": "savings_plan_recommendation",
+                            "subscriptionId": subscription_id,
+                            "recommendationId": item.get("name", ""),
+                            "sku": properties.get("armSkuName", ""),
+                            "scope": properties.get("scope", ""),
+                            "term": properties.get("term", term),
+                            "lookBackPeriod": properties.get("lookBackPeriod", "Last30Days"),
+                            "firstConsumptionDate": properties.get("firstConsumptionDate"),
+                            "lastConsumptionDate": properties.get("lastConsumptionDate"),
+                            "totalHours": properties.get("totalHours"),
+                            "commitmentAmount": details.get("commitmentAmount"),
+                            "commitmentGranularity": properties.get("commitmentGranularity", "Hourly"),
+                            "savingsAmount": details.get("savingsAmount"),
+                            "savingsPercentage": details.get("savingsPercentage"),
+                            "coveragePercentage": details.get("coveragePercentage"),
+                            "averageUtilizationPercentage": details.get("averageUtilizationPercentage"),
+                            "wastageCost": details.get("wastageCost"),
+                            "costWithoutBenefit": properties.get("costWithoutBenefit"),
+                            "currencyCode": properties.get("currencyCode", ""),
+                        }
+                        rows.append(row)
+                        recommendations_by_scope[(subscription_id, term)].append(row)
+                except Exception as exc:
+                    warnings.append(
+                        f"Savings Plan recommendation query skipped for subscription "
+                        f"{subscription_id} ({term}): {exc}"
+                    )
+
+        for scoped_rows in recommendations_by_scope.values():
+            best_row = max(
+                scoped_rows,
+                key=lambda row: _safe_number(row.get("savingsAmount")),
+            )
+            best_row["isTopSavingsOption"] = True
+            for row in scoped_rows:
+                row.setdefault("isTopSavingsOption", False)
+
+        if request.filters.start_date or request.filters.end_date:
+            warnings.append(
+                "Savings Plan recommendations use Azure's trailing 30-day usage lookback; "
+                "the selected report date range does not change that window."
+            )
 
     if domain in {
         ReportDomain.optimization,
@@ -413,8 +532,21 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
     if domain == ReportDomain.ai_token_tracking:
         rows = list(ai_token_summary)
 
-    enriched_rows, unresolved, enrichment_audit = enrich_rows_with_resource_metadata(rows)
-    quality_score = score_data_quality(len(enriched_rows), unresolved)
+    if domain == ReportDomain.savings_plans:
+        enriched_rows = rows
+        unresolved = sum(
+            1
+            for row in rows
+            for field in ("savingsAmount", "commitmentAmount", "currencyCode")
+            if row.get(field) in (None, "")
+        )
+        quality_score = score_data_quality(len(enriched_rows), unresolved)
+        enrichment_audit = []
+    else:
+        enriched_rows, unresolved, enrichment_audit = enrich_rows_with_resource_metadata(rows)
+        if domain == ReportDomain.hybrid_use_benefit:
+            unresolved += sum(row["benefitStatus"] == "Unknown" for row in enriched_rows)
+        quality_score = score_data_quality(len(enriched_rows), unresolved)
 
     if request.strict_live_mode and enriched_rows and quality_score < 95:
         warnings.append(
@@ -431,6 +563,30 @@ async def build_report(domain: ReportDomain, request: ReportRequest, bearer_toke
     execution_ms = int((time.perf_counter() - start) * 1000)
     recommendation_rows = ai_token_tracking if domain == ReportDomain.ai_token_tracking else enriched_rows
     recommendations = _generate_recommendations(domain, recommendation_rows)
+    if domain == ReportDomain.savings_plans and enriched_rows:
+        recommendations = [
+            Recommendation(
+                category="Savings Plan purchase recommendation",
+                impact_estimate=(
+                    f"{row['term']} estimated savings: {row['savingsAmount']} "
+                    f"{row['currencyCode']} over the {row['lookBackPeriod']} usage window"
+                ),
+                confidence="Azure Cost Management estimate",
+                affected_scope=row["subscriptionId"],
+                suggested_action=(
+                    f"Review the {row['term']} hourly commitment, coverage, utilization, "
+                    "and wastage before deciding whether to purchase."
+                ),
+                evidence=(
+                    "Savings Plan benefit recommendation returned by Azure Cost Management; "
+                    f"lookback dates {row['firstConsumptionDate']} to {row['lastConsumptionDate']}."
+                ),
+            )
+            for row in enriched_rows
+            if row.get("isTopSavingsOption")
+            and row.get("savingsAmount") is not None
+            and row.get("currencyCode")
+        ]
 
     return ReportResult(
         domain=domain,
@@ -578,6 +734,24 @@ def _build_ai_token_summary(ai_rows: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 def _generate_recommendations(domain: ReportDomain, rows: list[dict[str, Any]]) -> list[Recommendation]:
+    if domain == ReportDomain.hybrid_use_benefit:
+        return [
+            Recommendation(
+                category="License optimization",
+                impact_estimate="Not quantified; entitlement and pricing validation required",
+                confidence="Observed configuration only",
+                affected_scope=str(row["resourceId"]),
+                suggested_action=(
+                    "Validate qualifying license ownership, available allocation, and Software Assurance "
+                    "before considering Azure Hybrid Benefit. No configuration has been changed."
+                    if row["reviewCandidate"] else
+                    "Verify the missing or unrecognized license configuration in Azure before making a licensing decision."
+                ),
+                evidence=f"Azure Resource Graph: licenseType={row['licenseType']!r}; status={row['benefitStatus']}.",
+            )
+            for row in rows
+            if row["reviewCandidate"] or row["benefitStatus"] == "Unknown"
+        ]
     if not rows:
         return [
             Recommendation(
@@ -589,6 +763,7 @@ def _generate_recommendations(domain: ReportDomain, rows: list[dict[str, Any]]) 
                 evidence="Live query returned zero rows",
             )
         ]
+
 
     category = DOMAIN_RECOMMENDATION_CATEGORY[domain]
     impacted_count = len(rows)
@@ -602,3 +777,83 @@ def _generate_recommendations(domain: ReportDomain, rows: list[dict[str, Any]]) 
             evidence="Derived from live Azure API response set",
         )
     ]
+
+
+def _normalize_hybrid_benefit_row(item: dict[str, Any]) -> dict[str, Any]:
+    resource_type = str(item.get("type") or "").lower()
+    is_compute = resource_type.startswith("microsoft.compute/")
+    is_sql_vm = resource_type == "microsoft.sqlvirtualmachine/sqlvirtualmachines"
+    raw_license = item.get("sqlServerLicenseType") if is_sql_vm else item.get("licenseType")
+    license_type = str(raw_license or "").strip()
+    normalized_license = license_type.lower()
+    os_type = str(item.get("osType") or "")
+    status = "Unknown"
+    reason = "Missing or unrecognized license configuration; verify in Azure."
+    if is_compute:
+        if os_type.lower() == "windows":
+            if normalized_license == "windows_server":
+                status, reason = "Enabled", "Windows Server Hybrid Benefit is configured."
+            elif normalized_license == "none":
+                status, reason = "Not enabled", "Windows Server Hybrid Benefit is not configured."
+            elif normalized_license == "windows_client":
+                status, reason = "Not applicable", "Windows client licensing is not Windows Server Hybrid Benefit."
+        elif os_type:
+            status, reason = "Not applicable", "Non-Windows compute licensing is outside this report."
+    elif is_sql_vm:
+        if normalized_license == "ahub":
+            status, reason = "Enabled", "SQL Server Hybrid Benefit is configured."
+        elif normalized_license == "payg":
+            status, reason = "Not enabled", "SQL Server uses pay-as-you-go licensing."
+        elif normalized_license == "dr":
+            status, reason = "Not applicable", "SQL VM is configured for disaster recovery licensing."
+    else:
+        tier = str(item.get("skuTier") or "").lower()
+        sku = str(item.get("skuName") or "").lower()
+        if resource_type.endswith("/databases") and str(item.get("name", "")).split("/")[-1].lower() == "master":
+            status, reason = "Not applicable", "System master database is not an independent Hybrid Benefit target."
+        elif resource_type.endswith("/databases") and item.get("elasticPoolId"):
+            status, reason = "Inherited (pool)", "Review licensing on the parent elastic pool; do not count this database separately."
+        elif tier in {"basic", "standard", "premium", "datawarehouse", "free"} or "_s_" in sku:
+            status, reason = "Not applicable", "DTU, serverless, or non-supported SQL tier; verify the purchasing model."
+        elif normalized_license == "baseprice":
+            status, reason = "Enabled", "SQL base-price licensing (Azure Hybrid Benefit) is configured."
+        elif normalized_license == "licenseincluded":
+            status, reason = "Not enabled", "SQL license-included pricing is configured."
+    return {
+        "subscriptionId": item.get("subscriptionId", ""),
+        "resourceId": item.get("id", ""),
+        "resourceName": item.get("name", ""),
+        "resourceType": resource_type,
+        "resourceGroup": item.get("resourceGroup", ""),
+        "region": item.get("location", ""),
+        "tags": item.get("tags") or {},
+        "licenseProduct": ("Windows Server" if os_type.lower() == "windows" else "Other compute") if is_compute else "SQL Server",
+        "osType": os_type,
+        "sku": item.get("skuName", ""),
+        "licenseType": license_type or None,
+        "benefitStatus": status,
+        "reviewCandidate": status == "Not enabled",
+        "statusReason": reason,
+        "elasticPoolId": item.get("elasticPoolId") or None,
+        "virtualMachineId": item.get("virtualMachineId") or None,
+    }
+
+
+def _hybrid_benefit_matches_filters(row: dict[str, Any], request: ReportRequest) -> bool:
+    filters = request.filters
+    for field, expected in (
+        ("resourceGroup", filters.resource_group),
+        ("resourceType", filters.resource_type),
+        ("region", filters.region),
+    ):
+        if expected and str(row.get(field, "")).lower() != expected.lower():
+            return False
+    tags = row["tags"]
+    for key, value in (
+        (filters.tag_key, filters.tag_value),
+        ("environment", filters.environment),
+        ("costCenter", filters.cost_center),
+    ):
+        if key and (key not in tags or (value is not None and str(tags[key]) != value)):
+            return False
+    return not filters.actionable_only or bool(row["reviewCandidate"])

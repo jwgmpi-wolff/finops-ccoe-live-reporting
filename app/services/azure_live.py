@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 from __future__ import annotations
 
 import asyncio
@@ -72,12 +74,29 @@ class AzureLiveClient:
 
     async def query_resource_graph(self, subscription_ids: list[str], query: str) -> tuple[list[dict[str, Any]], SourceAudit]:
         url = f"{ARM_API}/providers/Microsoft.ResourceGraph/resources?api-version=2024-04-01"
-        body = {"subscriptions": subscription_ids, "query": query}
+        body = {
+            "subscriptions": subscription_ids,
+            "query": query,
+            "options": {"$top": 1000, "resultFormat": "objectArray"},
+        }
         start = time.perf_counter()
+        payload: list[dict[str, Any]] = []
+        seen_tokens: set[str] = set()
         async with httpx.AsyncClient(timeout=90) as client:
-            response = await client.post(url, headers=self._headers, json=body)
-            response.raise_for_status()
-            payload = response.json().get("data", [])
+            while True:
+                response = await client.post(url, headers=self._headers, json=body)
+                response.raise_for_status()
+                page = response.json()
+                payload.extend(page["data"])
+                skip_token = page.get("$skipToken")
+                if not skip_token:
+                    if str(page.get("resultTruncated", "false")).lower() == "true":
+                        raise RuntimeError("Resource Graph returned truncated results without a continuation token")
+                    break
+                if skip_token in seen_tokens:
+                    raise RuntimeError("Resource Graph repeated a continuation token")
+                seen_tokens.add(skip_token)
+                body["options"]["$skipToken"] = skip_token
         elapsed = int((time.perf_counter() - start) * 1000)
         return payload, SourceAudit(
             source="Azure Resource Graph",
@@ -86,6 +105,35 @@ class AzureLiveClient:
             row_count=len(payload),
             executed_at_utc=datetime.now(UTC),
         )
+
+    async def query_hybrid_benefit(self, subscription_id: str) -> tuple[list[dict[str, Any]], SourceAudit]:
+        query = (
+            "Resources "
+            "| where type in~ ('microsoft.compute/virtualmachines', "
+            "'microsoft.compute/virtualmachinescalesets', 'microsoft.sql/servers/databases', "
+            "'microsoft.sql/servers/elasticpools', 'microsoft.sql/managedinstances', "
+            "'microsoft.sqlvirtualmachine/sqlvirtualmachines') "
+            "| project id, subscriptionId, name, type, resourceGroup, location, tags, "
+            "licenseType = tostring(properties.licenseType), "
+            "sqlServerLicenseType = tostring(properties.sqlServerLicenseType), "
+            "osType = coalesce(tostring(properties.storageProfile.osDisk.osType), "
+            "tostring(properties.virtualMachineProfile.storageProfile.osDisk.osType)), "
+            "skuName = tostring(sku.name), skuTier = tostring(sku.tier), "
+            "skuFamily = tostring(sku.family), "
+            "elasticPoolId = tostring(properties.elasticPoolId), "
+            "virtualMachineId = tostring(properties.virtualMachineResourceId) "
+            "| order by id asc"
+        )
+        return await self.query_resource_graph([subscription_id], query)
+
+    async def validate_subscription_tenant(self, subscription_id: str, tenant_id: str) -> None:
+        url = f"{ARM_API}/subscriptions/{subscription_id}?api-version=2022-12-01"
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(url, headers=self._headers)
+            response.raise_for_status()
+            actual_tenant = response.json().get("tenantId")
+        if not actual_tenant or str(actual_tenant).lower() != tenant_id.lower():
+            raise ValueError("Selected subscription does not match the requested tenant")
 
     async def query_policy_compliance(self, subscription_ids: list[str]) -> tuple[list[dict[str, Any]], SourceAudit]:
         query = (
@@ -151,6 +199,37 @@ class AzureLiveClient:
         elapsed = int((time.perf_counter() - start) * 1000)
         return rows, SourceAudit(
             source="Azure Cost Management",
+            endpoint=url,
+            duration_ms=elapsed,
+            row_count=len(rows),
+            executed_at_utc=datetime.now(UTC),
+        )
+
+    async def query_savings_plan_recommendations(
+        self,
+        subscription_id: str,
+        term: str,
+    ) -> tuple[list[dict[str, Any]], SourceAudit]:
+        url = (
+            f"{ARM_API}/subscriptions/{subscription_id}/providers/"
+            "Microsoft.CostManagement/benefitRecommendations"
+        )
+        params = {
+            "api-version": "2026-06-01",
+            "$filter": (
+                "properties/scope eq 'Single' AND "
+                "properties/lookBackPeriod eq 'Last30Days' AND "
+                f"properties/term eq '{term}'"
+            ),
+        }
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.get(url, headers=self._headers, params=params)
+            response.raise_for_status()
+            rows = response.json().get("value", [])
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return rows, SourceAudit(
+            source="Azure Cost Management Savings Plan Recommendations",
             endpoint=url,
             duration_ms=elapsed,
             row_count=len(rows),

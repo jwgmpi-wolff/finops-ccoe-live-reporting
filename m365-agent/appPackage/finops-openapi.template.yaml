@@ -60,6 +60,7 @@ paths:
               - optimization
               - reservations
               - savings_plans
+              - hybrid_use_benefit
               - savings_potential
               - reservations_potential
               - anomaly_detection
