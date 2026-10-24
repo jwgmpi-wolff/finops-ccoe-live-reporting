@@ -5,14 +5,33 @@ A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot 
 <!-- project-downloads:start -->
 ## APK and installer downloads
 
-| Package | Download | Source |
+Every available project package is indexed below, including older versions. Prefer the newest stable version for your platform and architecture. Debug APKs and prereleases are labeled; archives are not necessarily standalone installers.
+
+### Release downloads: all published versions
+
+| Version / source | Package | Download |
 | --- | --- | --- |
-| Windows installer | [FinOpsCCoE-Setup.exe](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.6/FinOpsCCoE-Setup.exe) | v1.2.6 |
+| v1.2.6 | Portable distribution archive | [FinOpsCCoE-portable.zip](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.6/FinOpsCCoE-portable.zip) |
+| v1.2.6 | Windows installer | [FinOpsCCoE-Setup.exe](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.6/FinOpsCCoE-Setup.exe) |
+| v1.2.5 | Portable distribution archive | [FinOpsCCoE-portable.zip](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.5/FinOpsCCoE-portable.zip) |
+| v1.2.5 | Windows installer | [FinOpsCCoE-Setup.exe](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.5/FinOpsCCoE-Setup.exe) |
+| v1.2.4 | Portable distribution archive | [FinOpsCCoE-portable.zip](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.4/FinOpsCCoE-portable.zip) |
+| v1.2.4 | Windows installer | [FinOpsCCoE-Setup.exe](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.4/FinOpsCCoE-Setup.exe) |
+| v1.2.3 | Portable distribution archive | [FinOpsCCoE-portable.zip](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.3/FinOpsCCoE-portable.zip) |
+| v1.2.3 | Windows installer | [FinOpsCCoE-Setup.exe](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.3/FinOpsCCoE-Setup.exe) |
+| v1.2.2 | Portable distribution archive | [FinOpsCCoE-portable.zip](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.2/FinOpsCCoE-portable.zip) |
+| v1.2.2 | Windows installer | [FinOpsCCoE-Setup.exe](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.2/FinOpsCCoE-Setup.exe) |
+| v1.2.1 | Portable distribution archive | [FinOpsCCoE-portable.zip](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.1/FinOpsCCoE-portable.zip) |
+| v1.2.1 | Windows installer | [FinOpsCCoE-Setup.exe](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.1/FinOpsCCoE-Setup.exe) |
 
-Android may require approval to install apps from this download source. Debug APKs are labeled above. Windows executables that are not setup packages may require accompanying project files; follow the project-specific instructions below.
+### Setup scripts and source
 
-- [Download the complete source ZIP](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/archive/refs/heads/main.zip).
-- [Setup script: deploy-local.ps1](./deploy-local.ps1) (download and extract the complete source ZIP first).
+- [Setup script: deploy-local.ps1](./deploy-local.ps1)
+
+- [Download the complete source ZIP](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/archive/refs/heads/main.zip). Extract the complete checkout before running setup scripts unless the project instructions explicitly support standalone installation.
+- [Browse all releases and their assets](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases).
+
+Android may require approval to install apps from the download source. Follow the project-specific installation, signing, checksum, and prerequisite instructions elsewhere in this README.
 <!-- project-downloads:end -->
 
 ## Download Windows Installer (AMD and Intel)
