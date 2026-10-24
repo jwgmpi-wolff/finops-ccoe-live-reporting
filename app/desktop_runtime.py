@@ -1,3 +1,5 @@
+# Copyright (c) 2026 jerry wolff
+
 from __future__ import annotations
 
 import hashlib
