@@ -2,6 +2,19 @@
 
 A live-only Azure FinOps reporting platform and read-only Microsoft 365 Copilot declarative agent. The project discovers the signed-in user's tenants and subscriptions, queries Microsoft APIs within that user's Azure RBAC boundary, produces evidence-backed recommendations, and exports reports to CSV, PDF, PowerPoint, and SQLite.
 
+<!-- project-downloads:start -->
+## APK and installer downloads
+
+| Package | Download | Source |
+| --- | --- | --- |
+| Windows installer | [FinOpsCCoE-Setup.exe](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/download/v1.2.6/FinOpsCCoE-Setup.exe) | v1.2.6 |
+
+Android may require approval to install apps from this download source. Debug APKs are labeled above. Windows executables that are not setup packages may require accompanying project files; follow the project-specific instructions below.
+
+- [Download the complete source ZIP](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/archive/refs/heads/main.zip).
+- [Setup script: deploy-local.ps1](./deploy-local.ps1) (download and extract the complete source ZIP first).
+<!-- project-downloads:end -->
+
 ## Download Windows Installer (AMD and Intel)
 
 **[Download FinOpsCCoE-Setup.exe from jwgmpi-wolff](https://github.com/jwgmpi-wolff/finops-ccoe-live-reporting/releases/latest/download/FinOpsCCoE-Setup.exe)**
@@ -767,3 +780,9 @@ Now implement the entire project end-to-end. Create every listed file with compl
 ## License
 
 This project is provided as-is for internal enablement and engineering acceleration.
+
+## Copyright
+
+Copyright (c) 2026 Jerry Wolff. See [COPYRIGHT](COPYRIGHT) for the scope of this
+notice. Existing licenses and third-party attribution remain unchanged; this
+notice does not grant additional permissions.
